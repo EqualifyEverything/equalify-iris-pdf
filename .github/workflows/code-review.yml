@@ -160,6 +160,26 @@ jobs:
             gh pr comment "$PR_NUMBER" --body-file "$BODY"
           fi
 
+      - uses: actions/setup-node@v7
+        if: steps.guard.outputs.already_reviewed != 'true'
+        with:
+          # Must match .nvmrc: the sources are .ts, run directly by Node's type stripping.
+          node-version-file: .nvmrc
+          cache: npm
+
+      # For the OCR tests. Failure-tolerant like every step before the model: a
+      # step that exits non-zero here would skip the fallback and verify steps.
+      # Without Tesseract the OCR tests skip themselves; the warning says so.
+      - name: Install Tesseract (OCR tests)
+        if: steps.guard.outputs.already_reviewed != 'true'
+        continue-on-error: true
+        run: |
+          if sudo apt-get update && sudo apt-get install -y tesseract-ocr; then
+            echo "tesseract installed"
+          else
+            echo "::warning::tesseract-ocr failed to install; the OCR tests will skip. The review still runs."
+          fi
+
       - name: Build review context
         if: steps.guard.outputs.already_reviewed != 'true'
         # Every check records pass/fail/skip into the context rather than failing the
@@ -257,12 +277,24 @@ jobs:
           fi
           { echo '```'; echo; echo "Result: **$SCRIPT_LINT**"; } >> "$OUT"
 
+          { echo; echo "## Install — \`npm ci\`"; echo '```'; } >> "$OUT"
+          if npm ci 2>&1 | tail -40 >> "$OUT"; then INSTALL=pass; else INSTALL=fail; fi
+          { echo '```'; echo; echo "Result: **$INSTALL**"; } >> "$OUT"
+
+          { echo; echo "## Typecheck — \`npm run typecheck\`"; echo '```'; } >> "$OUT"
+          if npm run typecheck 2>&1 | tail -80 >> "$OUT"; then TYPECHECK=pass; else TYPECHECK=fail; fi
+          { echo '```'; echo; echo "Result: **$TYPECHECK**"; } >> "$OUT"
+
+          { echo; echo "## Unit tests — \`npm test\`"; echo '```'; } >> "$OUT"
+          if npm test 2>&1 | tail -120 >> "$OUT"; then UNIT=pass; else UNIT=fail; fi
+          { echo '```'; echo; echo "Result: **$UNIT**"; } >> "$OUT"
+
           # Also written to its own file so the fallback step can cat it without a pipe.
-          SUMMARY=$(printf '## Check summary\n- workflow lint (`actionlint`): %s\n- workflow scripts (`shellcheck`): %s\n' \
-            "$WFLINT" "$SCRIPT_LINT")
+          SUMMARY=$(printf '## Check summary\n- workflow lint (`actionlint`): %s\n- workflow scripts (`shellcheck`): %s\n- npm ci: %s\n- typecheck: %s\n- unit (`npm test`): %s\n' \
+            "$WFLINT" "$SCRIPT_LINT" "$INSTALL" "$TYPECHECK" "$UNIT")
           { echo; echo "$SUMMARY"; } >> "$OUT"
           echo "$SUMMARY" | tee -a "$GITHUB_STEP_SUMMARY" > /tmp/check-summary.md
-          if [ "$WFLINT" = fail ] || [ "$SCRIPT_LINT" = fail ]; then
+          if [ "$WFLINT" = fail ] || [ "$SCRIPT_LINT" = fail ] || [ "$INSTALL$TYPECHECK$UNIT" != passpasspass ]; then
             echo "::warning::One or more checks failed — the review continues so Claude reports it."
           fi
 
