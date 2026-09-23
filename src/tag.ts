@@ -74,9 +74,8 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
     const page = doc.loadPage(i);
     if (!html.has(i)) {
       // Nothing says what this page holds, so it is left exactly as it was.
-      // A blank page with no annotations needs no tags, so it is not a warning.
-      const annots = page.getObject().get("Annots");
-      const blank = drawsNothing(page) && !(annots.isArray() && annots.length);
+      // A blank page with no annotations to tag needs no tags, so it is not a warning.
+      const blank = drawsNothing(page) && !needTags(page.getObject().get("Annots"));
       if (!blank) warn({ code: "page_not_in_html", page: i + 1, detail: "pages.json has no HTML for this page; it was left untagged." });
       report.pages.push({ page: i + 1, textSource: "none", words: 0, matched: 0, addedFromHtml: 0, furniture: 0, lost: 0, mcids: 0 });
       if (!blank) untagged++;
@@ -119,6 +118,16 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
     throw new IrisPdfError("strict", `--strict: ${[...new Set(strict.map((w) => w.code))].join(", ")}`);
   }
   return out;
+}
+
+// PDF/UA-1 7.18.1, 7.18.3: hidden annotations and popups are not tagged.
+function needTags(annots: mupdf.PDFObject): boolean {
+  let any = false;
+  if (annots.isArray()) annots.forEach((a) => {
+    const flags = a.get("F").isNumber() ? a.get("F").asNumber() : 0;
+    if (a.get("Subtype").asName() !== "Popup" && !(flags & (2 | 32))) any = true;
+  });
+  return any;
 }
 
 type PageCtx = {

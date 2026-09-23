@@ -232,6 +232,14 @@ test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
   const out = new mupdf.PDFDocument(tag(withLink, pagesOf("blank-page"), {}, linked));
   assert.ok(linked.warnings.some((w) => w.code === "page_not_in_html" && w.page === 2));
   assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+
+  // A hidden annotation is not tagged, so the page is still blank.
+  const hidden = new mupdf.PDFDocument(readFixture("blank-page.pdf"));
+  hidden.loadPage(1).createLink([10, 10, 50, 50], "https://example.org");
+  hidden.findPage(1).get("Annots").get(0).put("F", 2);
+  const quiet = newReport();
+  tag(hidden.saveToBuffer("").asUint8Array().slice(), pagesOf("blank-page"), { strict: true }, quiet);
+  assert.ok(!quiet.warnings.some((w) => w.code === "page_not_in_html"));
 });
 
 test("a generic link description is marked English in a document that is not", () => {
