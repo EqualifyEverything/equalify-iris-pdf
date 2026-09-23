@@ -15,6 +15,19 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject): 
   return [doc.addStream("/Artifact BMC q\n", {}), ...streams, doc.addStream("\nQ EMC\n", {})];
 }
 
+// True if the page's own content paints nothing (annotations aside).
+export function drawsNothing(page: mupdf.PDFPage): boolean {
+  let drew = false;
+  const paint = () => { drew = true; };
+  const dev = new mupdf.Device({
+    fillPath: paint, strokePath: paint, fillText: paint, strokeText: paint,
+    fillShade: paint, fillImage: paint, fillImageMask: paint,
+  });
+  page.runPageContents(dev, mupdf.Matrix.identity);
+  dev.close();
+  return !drew;
+}
+
 const num = (n: number) => (Math.abs(n) < 1e-6 ? "0" : String(Math.round(n * 1000) / 1000));
 
 // Text render mode 3 draws nothing, so the overlay changes no pixel.

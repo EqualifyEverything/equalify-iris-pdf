@@ -2,7 +2,7 @@
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
 import { openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { artifactStreams, Overlay } from "./pdf/content.ts";
+import { artifactStreams, drawsNothing, Overlay } from "./pdf/content.ts";
 import { FontSet } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
@@ -32,7 +32,7 @@ export type TagOptions = OpenOptions & {
 };
 
 // With --strict these fail the run instead of only being reported.
-const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete"];
+const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete", "page_not_tagged"];
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
@@ -74,9 +74,11 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
     const page = doc.loadPage(i);
     if (!html.has(i)) {
       // Nothing says what this page holds, so it is left exactly as it was.
-      warn({ code: "page_not_in_html", page: i + 1, detail: "pages.json has no HTML for this page; it was left untagged." });
+      // A blank page needs no tags, so it is not a warning.
+      const blank = drawsNothing(page);
+      if (!blank) warn({ code: "page_not_in_html", page: i + 1, detail: "pages.json has no HTML for this page; it was left untagged." });
       report.pages.push({ page: i + 1, textSource: "none", words: 0, matched: 0, addedFromHtml: 0, furniture: 0, lost: 0, mcids: 0 });
-      untagged++;
+      if (!blank) untagged++;
       continue;
     }
     const r = tagPage(page, i, html.get(i)!, {
@@ -208,9 +210,13 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
 
   // Annotations that Iris's HTML did not mention still need a place in the tree.
   for (const l of links.filter((l) => !l.used)) {
-    const elem = ctx.struct.add(ctx.struct.top, "Link");
+    // Its description: the words under it, else its address, else a generic
+    // English phrase, marked as English so it is read as such.
+    const under = words.filter((w) => overlaps(l.box, w.box, 0.3)).map((w) => w.text).join(" ");
+    const generic = !l.obj.get("Contents").isString() && !under && !l.uri;
+    const elem = ctx.struct.add(ctx.struct.top, "Link", generic && !ctx.lang.startsWith("en") ? { Lang: ctx.doc.newString("en") } : {});
     ctx.struct.objr(elem, pageObj, l.obj);
-    if (l.obj.get("Contents").isNull()) l.obj.put("Contents", ctx.doc.newString(l.uri || "Link to another part of this document"));
+    if (l.obj.get("Contents").isNull()) l.obj.put("Contents", ctx.doc.newString(under || l.uri || "Link to another part of this document"));
     warn({ code: "unmatched_link", detail: l.uri || "internal link" });
   }
   for (const w of ctx.widgets.filter((w) => !w.used && !ctx.flatten)) {
@@ -221,8 +227,13 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   }
   if (!pageObj.get("Annots").isNull()) pageObj.put("Tabs", ctx.doc.newName("S"));
   report.mcids = e.mcids;
-  const keep = e.mcids || !pageObj.get("Contents").isNull();
-  return { report, overlay: keep ? { ops: overlay.toString(), text: overlay.text } : null };
+  if (!e.mcids) {
+    // Nothing to tag. A page that draws something is left as it was, not hidden as an artifact.
+    if (drawsNothing(page)) return { report, overlay: null };
+    warn({ code: "page_not_tagged", detail: "The HTML for this page holds nothing to tag; it was left untagged." });
+    return { report, overlay: null, untagged: true };
+  }
+  return { report, overlay: { ops: overlay.toString(), text: overlay.text } };
 }
 
 type Link = { obj: mupdf.PDFObject; box: Box; uri: string; used: boolean };

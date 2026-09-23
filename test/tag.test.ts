@@ -207,6 +207,44 @@ test("a page missing from pages.json is left untouched, warned, and stops the PD
   assert.throws(() => tag(pdf, pagesOf("text-simple"), { strict: true }), { code: "strict" });
 });
 
+test("a page whose HTML holds nothing to tag is left as it was, not hidden as an artifact", () => {
+  const pdf = readFixture("scan-300dpi.pdf");
+  const pages = { lang: "en", title: "T", pages: [{ sourcePage: 1, html: "" }] };
+  const before = new mupdf.PDFDocument(pdf).findPage(0).get("Contents").readStream().asString();
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(pdf, pages, {}, report));
+  assert.equal(doc.findPage(0).get("Contents").readStream().asString(), before);
+  assert.ok(report.warnings.some((w) => w.code === "page_not_tagged"));
+  assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.throws(() => tag(pdf, pages, { strict: true }), { code: "strict" });
+});
+
+test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
+  const { doc, report } = tagFixture("blank-page", { strict: true });
+  assert.ok(!report.warnings.some((w) => w.code === "page_not_in_html"));
+  assert.match(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /<pdfuaid:part>1/);
+});
+
+test("a generic link description is marked English in a document that is not", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  doc.loadPage(0).createLink([0, 0, 20, 20], "#page=1");
+  const pages = { ...pagesOf("text-simple"), lang: "fr" };
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pages));
+  const [link] = find(structTree(out), "Link");
+  assert.equal(link.dict.get("Lang").asString(), "en");
+});
+
+test("an unmatched link is described by the words under it", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  const page = doc.loadPage(0);
+  const [quad] = page.search("Fees", "")[0];
+  page.createLink([quad[0], quad[1], quad[6], quad[7]], "#page=1");
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-simple")));
+  // "Fees" is matched to an H2, not a link, so the annotation is unmatched.
+  const [link] = find(structTree(out), "Link");
+  assert.equal(link.objr[0].get("Contents").asString(), "Fees");
+});
+
 test("with no title there is no PDF/UA claim, no empty title, and --strict fails", () => {
   const pages = { ...pagesOf("text-simple"), title: undefined };
   const report = newReport();
