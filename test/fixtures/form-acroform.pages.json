@@ -1,0 +1,10 @@
+{
+  "lang": "en",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>Permit Application</h1><form><p><label for=\"n\">Full name</label> <input id=\"n\" name=\"applicant.name\"></p><p><input type=\"checkbox\" id=\"c\" name=\"applicant.consent\"> <label for=\"c\">I agree to the terms</label></p><fieldset><legend>Contact me by</legend><input type=\"radio\" id=\"e\" name=\"contact\" value=\"email\"> <label for=\"e\">Email</label> <input type=\"radio\" id=\"p\" name=\"contact\" value=\"phone\"> <label for=\"p\">Phone</label></fieldset><p><label for=\"s\">State</label> <select id=\"s\" name=\"state\"><option>IL</option><option>IN</option><option>WI</option></select></p><p><label for=\"o\">Office code</label> <input id=\"o\" name=\"office\" readonly value=\"A-12\"></p><p><label for=\"g\">Signature</label> <input id=\"g\" name=\"signature\"></p></form>"
+    }
+  ]
+}

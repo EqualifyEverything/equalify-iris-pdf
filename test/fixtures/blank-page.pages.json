@@ -1,0 +1,10 @@
+{
+  "lang": "en",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>Parking Permit</h1><p>Residents may apply for one parking permit per car. Bring proof of address to the permit office.</p><h2>Fees</h2><p>A permit costs twenty dollars a year.</p>"
+    }
+  ]
+}

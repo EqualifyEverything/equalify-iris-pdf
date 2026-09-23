@@ -1,0 +1,10 @@
+{
+  "lang": "zh-Hans",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>停车许可证</h1><p>每辆车可申请一张许可证</p>"
+    }
+  ]
+}
