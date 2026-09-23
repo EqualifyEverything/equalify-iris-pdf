@@ -223,6 +223,15 @@ test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
   const { doc, report } = tagFixture("blank-page", { strict: true });
   assert.ok(!report.warnings.some((w) => w.code === "page_not_in_html"));
   assert.match(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /<pdfuaid:part>1/);
+
+  // With a link on it, the blank page has something to tag.
+  const src = new mupdf.PDFDocument(readFixture("blank-page.pdf"));
+  src.loadPage(1).createLink([10, 10, 50, 50], "https://example.org");
+  const withLink = src.saveToBuffer("").asUint8Array().slice();
+  const linked = newReport();
+  const out = new mupdf.PDFDocument(tag(withLink, pagesOf("blank-page"), {}, linked));
+  assert.ok(linked.warnings.some((w) => w.code === "page_not_in_html" && w.page === 2));
+  assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
 
 test("a generic link description is marked English in a document that is not", () => {

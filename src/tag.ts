@@ -74,8 +74,9 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
     const page = doc.loadPage(i);
     if (!html.has(i)) {
       // Nothing says what this page holds, so it is left exactly as it was.
-      // A blank page needs no tags, so it is not a warning.
-      const blank = drawsNothing(page);
+      // A blank page with no annotations needs no tags, so it is not a warning.
+      const annots = page.getObject().get("Annots");
+      const blank = drawsNothing(page) && !(annots.isArray() && annots.length);
       if (!blank) warn({ code: "page_not_in_html", page: i + 1, detail: "pages.json has no HTML for this page; it was left untagged." });
       report.pages.push({ page: i + 1, textSource: "none", words: 0, matched: 0, addedFromHtml: 0, furniture: 0, lost: 0, mcids: 0 });
       if (!blank) untagged++;
