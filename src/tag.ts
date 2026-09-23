@@ -124,6 +124,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
 function needTags(annots: mupdf.PDFObject): boolean {
   let any = false;
   if (annots.isArray()) annots.forEach((a) => {
+    if (!a.isDictionary()) return; // a null entry
     const flags = a.get("F").isNumber() ? a.get("F").asNumber() : 0;
     if (a.get("Subtype").asName() !== "Popup" && !(flags & (2 | 32))) any = true;
   });
@@ -353,7 +354,7 @@ function linkAnnots(page: mupdf.PDFPage): Link[] {
   const annots = page.getObject().get("Annots");
   if (!annots.isArray()) return out;
   annots.forEach((a) => {
-    if (a.get("Subtype").asName() !== "Link") return;
+    if (!a.isDictionary() || a.get("Subtype").asName() !== "Link") return;
     const r = a.get("Rect");
     const box = mupdf.Rect.transform([0, 1, 2, 3].map((k) => r.get(k).asNumber()) as Box, m) as Box;
     const uri = a.get("A", "URI");

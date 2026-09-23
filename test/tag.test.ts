@@ -233,13 +233,22 @@ test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
   assert.ok(linked.warnings.some((w) => w.code === "page_not_in_html" && w.page === 2));
   assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 
-  // A hidden annotation is not tagged, so the page is still blank.
-  const hidden = new mupdf.PDFDocument(readFixture("blank-page.pdf"));
-  hidden.loadPage(1).createLink([10, 10, 50, 50], "https://example.org");
-  hidden.findPage(1).get("Annots").get(0).put("F", 2);
-  const quiet = newReport();
-  tag(hidden.saveToBuffer("").asUint8Array().slice(), pagesOf("blank-page"), { strict: true }, quiet);
-  assert.ok(!quiet.warnings.some((w) => w.code === "page_not_in_html"));
+  // Annotations PDF/UA does not tag (hidden, no-view, popups) and null entries leave the page blank.
+  const exempt: [string, (a: mupdf.PDFObject, d: mupdf.PDFDocument) => void][] = [
+    ["hidden", (a) => a.put("F", 2)],
+    ["no-view", (a) => a.put("F", 32)],
+    ["popup", (a, d) => a.put("Subtype", d.newName("Popup"))],
+  ];
+  for (const [name, edit] of exempt) {
+    const d = new mupdf.PDFDocument(readFixture("blank-page.pdf"));
+    d.loadPage(1).createLink([10, 10, 50, 50], "https://example.org");
+    const annots = d.findPage(1).get("Annots");
+    edit(annots.get(0), d);
+    annots.push(null);
+    const quiet = newReport();
+    tag(d.saveToBuffer("").asUint8Array().slice(), pagesOf("blank-page"), { strict: true }, quiet);
+    assert.ok(!quiet.warnings.some((w) => w.code === "page_not_in_html"), name);
+  }
 });
 
 test("a generic link description is marked English in a document that is not", () => {
