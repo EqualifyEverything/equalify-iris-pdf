@@ -6,6 +6,15 @@ Uses accessible HTML to tag and update a PDF. It is a sibling of [equalify-iris]
 
 The **Iris PDF Maintainer** (a Claude agent) is this repo's primary maintainer. Other agents, human or automated, work alongside it. These include the PR reviewer in `.github/workflows/code-review.yml`. Their output is input to the maintainer, not a final decision.
 
+## Working here
+
+Several agents work from this folder at once, so each piece of work gets its own git worktree:
+
+- Before you touch any file, start a new worktree (Claude Code: `EnterWorktree`). It lives under `.claude/worktrees/<name>` on its own branch.
+- Give subagents that edit files their own worktree too (`isolation: "worktree"`).
+- Never edit in the main checkout. It stays clean and on `main`.
+- Work lands through a branch and a pull request.
+
 ## Standards
 
 - Everything here serves building and maintaining this library.
