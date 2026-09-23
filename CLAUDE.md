@@ -11,8 +11,10 @@ The **Iris PDF Maintainer** (a Claude agent) is this repo's primary maintainer. 
 Several agents work from this folder at once, so each piece of work gets its own git worktree:
 
 - Before you touch any file, start a new worktree (Claude Code: `EnterWorktree`). It lives under `.claude/worktrees/<name>` on its own branch.
-- Give subagents that edit files their own worktree too (`isolation: "worktree"`).
-- Never edit in the main checkout. It stays clean and on `main`.
+- Give subagents that edit files their own worktree too (`isolation: "worktree"`). The subagent commits on its branch and you merge that branch into yours; otherwise its work is lost.
+- Never edit in the main checkout; keep it on `main`. (CI checks out there too; this rule is for local work.)
+- Worktrees sit in an ignored folder inside the main checkout. Clean the main checkout with `git clean -fdx`, never `-ffdx`: the double `f` deletes other agents' worktrees.
+- `scratch/` is ignored, for local experiments.
 - Work lands through a branch and a pull request.
 
 ## Standards
