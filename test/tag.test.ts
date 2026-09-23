@@ -260,6 +260,14 @@ test("a generic link description is marked English in a document that is not", (
   assert.equal(link.dict.get("Lang").asString(), "en");
 });
 
+test("a null entry in a tagged page's annotations is skipped", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  doc.findPage(0).put("Annots", [null]);
+  const report = newReport();
+  tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-simple"), {}, report);
+  assert.equal(report.verification.textPreserved, true);
+});
+
 test("an unmatched link is described by the words under it", () => {
   const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
   const page = doc.loadPage(0);
