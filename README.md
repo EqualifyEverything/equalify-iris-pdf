@@ -74,14 +74,16 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## The report
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`.
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (the page is left as it was), `no_title`, `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+
+The output declares PDF/UA-1 only when it has a title and every page is tagged.
 
 ## Refusals and exit codes
 
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `damaged`, `too_many_pages` (over 25), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `damaged`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. |
 

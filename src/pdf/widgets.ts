@@ -102,6 +102,7 @@ export function checkValues(fields: Field[], values: Record<string, FormValue>):
       if (f.maxlen !== null && [...v].length > f.maxlen) throw bad(name, `longer than its limit of ${f.maxlen} characters.`);
     } else if (f.type === "checkbox") {
       if (typeof v !== "boolean") throw bad(name, "a checkbox takes true or false.");
+      if (v && !f.options.length) throw bad(name, "this checkbox has no checked appearance to show.");
     } else if (f.type === "radio") {
       if (typeof v !== "string" || !f.options.includes(v)) throw bad(name, `must be one of: ${f.options.join(", ")}.`);
     } else {

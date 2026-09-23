@@ -69,6 +69,7 @@ jobs:
             HEAD_SHA=$(echo "$META" | jq -r .head.sha)
             BASE_REF=$(echo "$META" | jq -r .base.ref)
             BASE_SHA=$(echo "$META" | jq -r .base.sha)
+            HEAD_REPO=$(echo "$META" | jq -r .head.repo.full_name)
             git fetch origin "pull/$PR_NUMBER/head:pr-$PR_NUMBER"
             git checkout "pr-$PR_NUMBER"
           else
@@ -76,7 +77,10 @@ jobs:
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
             BASE_REF="${{ github.event.pull_request.base.ref }}"
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_REPO="${{ github.repository }}" # the job condition admits only same-repo PRs
           fi
+          # A fork's code must not run in this job: it holds id-token and the Bedrock role.
+          if [ "$HEAD_REPO" = "${{ github.repository }}" ]; then echo "fork=false" >> "$GITHUB_OUTPUT"; else echo "fork=true" >> "$GITHUB_OUTPUT"; fi
           if gh pr diff "$PR_NUMBER" --name-only | grep -qx '.github/workflows/code-review.yml'; then
             echo "changed_workflow=code-review.yml" >> "$GITHUB_OUTPUT"
             # Single-quoted: the escaped open-expression on the `github.event.*` line
@@ -192,6 +196,7 @@ jobs:
           HEAD_SHA: ${{ steps.ctx.outputs.head_sha }}
           BASE_REF: ${{ steps.ctx.outputs.base_ref }}
           BASE_SHA: ${{ steps.ctx.outputs.base_sha }}
+          FORK: ${{ steps.ctx.outputs.fork }}
         run: |
           set -euo pipefail
           OUT=/tmp/review-context.md
@@ -277,24 +282,30 @@ jobs:
           fi
           { echo '```'; echo; echo "Result: **$SCRIPT_LINT**"; } >> "$OUT"
 
-          { echo; echo "## Install — \`npm ci\`"; echo '```'; } >> "$OUT"
-          if npm ci 2>&1 | tail -40 >> "$OUT"; then INSTALL=pass; else INSTALL=fail; fi
-          { echo '```'; echo; echo "Result: **$INSTALL**"; } >> "$OUT"
+          if [ "$FORK" = true ]; then
+            # Running a fork's install scripts or tests here would hand them this job's credentials.
+            { echo; echo "## Install, typecheck, unit tests"; echo; echo "Skipped: the head is a fork. See the Test workflow run on this PR."; } >> "$OUT"
+            INSTALL=skip TYPECHECK=skip UNIT=skip
+          else
+            { echo; echo "## Install — \`npm ci\`"; echo '```'; } >> "$OUT"
+            if npm ci 2>&1 | tail -40 >> "$OUT"; then INSTALL=pass; else INSTALL=fail; fi
+            { echo '```'; echo; echo "Result: **$INSTALL**"; } >> "$OUT"
 
-          { echo; echo "## Typecheck — \`npm run typecheck\`"; echo '```'; } >> "$OUT"
-          if npm run typecheck 2>&1 | tail -80 >> "$OUT"; then TYPECHECK=pass; else TYPECHECK=fail; fi
-          { echo '```'; echo; echo "Result: **$TYPECHECK**"; } >> "$OUT"
+            { echo; echo "## Typecheck — \`npm run typecheck\`"; echo '```'; } >> "$OUT"
+            if npm run typecheck 2>&1 | tail -80 >> "$OUT"; then TYPECHECK=pass; else TYPECHECK=fail; fi
+            { echo '```'; echo; echo "Result: **$TYPECHECK**"; } >> "$OUT"
 
-          { echo; echo "## Unit tests — \`npm test\`"; echo '```'; } >> "$OUT"
-          if npm test 2>&1 | tail -120 >> "$OUT"; then UNIT=pass; else UNIT=fail; fi
-          { echo '```'; echo; echo "Result: **$UNIT**"; } >> "$OUT"
+            { echo; echo "## Unit tests — \`npm test\`"; echo '```'; } >> "$OUT"
+            if npm test 2>&1 | tail -120 >> "$OUT"; then UNIT=pass; else UNIT=fail; fi
+            { echo '```'; echo; echo "Result: **$UNIT**"; } >> "$OUT"
+          fi
 
           # Also written to its own file so the fallback step can cat it without a pipe.
           SUMMARY=$(printf '## Check summary\n- workflow lint (`actionlint`): %s\n- workflow scripts (`shellcheck`): %s\n- npm ci: %s\n- typecheck: %s\n- unit (`npm test`): %s\n' \
             "$WFLINT" "$SCRIPT_LINT" "$INSTALL" "$TYPECHECK" "$UNIT")
           { echo; echo "$SUMMARY"; } >> "$OUT"
           echo "$SUMMARY" | tee -a "$GITHUB_STEP_SUMMARY" > /tmp/check-summary.md
-          if [ "$WFLINT" = fail ] || [ "$SCRIPT_LINT" = fail ] || [ "$INSTALL$TYPECHECK$UNIT" != passpasspass ]; then
+          if [ "$WFLINT" = fail ] || [ "$SCRIPT_LINT" = fail ] || { [ "$FORK" != true ] && [ "$INSTALL$TYPECHECK$UNIT" != passpasspass ]; }; then
             echo "::warning::One or more checks failed — the review continues so Claude reports it."
           fi
 

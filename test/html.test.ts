@@ -41,9 +41,11 @@ test("images: alt text, decorative and missing", () => {
 
 test("links and footnotes", () => {
   const { top } = build('<p>See <a href="https://x.org">x</a> and<a href="#n1">1</a></p><p id="n1">Note one</p>');
-  assert.equal(top.kids.map(shape).join(", "), 'P("See", Link("x"), "and", Reference("1")), Note("Note one")');
+  assert.equal(top.kids.map(shape).join(", "), 'P("See", Link("x"), "and", Reference(Link("1"))), Note("Note one")');
   assert.equal(((top.kids[0] as Node).kids[1] as Node).href, "https://x.org");
   assert.equal((top.kids[1] as Node).id, "p1-n1");
+  // A heading that is a link target stays a heading.
+  assert.equal(kids('<p><a href="#fees">Fees</a></p><h2 id="fees">Fees</h2>'), 'P(Reference(Link("Fees"))), H2("Fees")');
 });
 
 test("form controls take their label from for=, an enclosing label, or aria-label", () => {

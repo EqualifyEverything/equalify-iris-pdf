@@ -10,7 +10,7 @@ import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
 import { joinHyphenated, type Box, type PageWord } from "./align/words.ts";
-import { align } from "./align/align.ts";
+import { align, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
 import { ocrWords, tesseractInstalled } from "./ocr/tesseract.ts";
 import { comparePixels } from "./verify/pixels.ts";
@@ -32,7 +32,7 @@ export type TagOptions = OpenOptions & {
 };
 
 // With --strict these fail the run instead of only being reported.
-const STRICT = ["unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link"];
+const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete"];
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
@@ -69,13 +69,22 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const fonts = new FontSet();
   const written: { page: mupdf.PDFObject; overlay: string }[] = [];
   const overlayText = new Map<number, string>(); // per page index
+  let untagged = 0; // pages left as they were
   for (let i = 0; i < pageCount; i++) {
     const page = doc.loadPage(i);
-    const r = tagPage(page, i, html.get(i) ?? "", {
+    if (!html.has(i)) {
+      // Nothing says what this page holds, so it is left exactly as it was.
+      warn({ code: "page_not_in_html", page: i + 1, detail: "pages.json has no HTML for this page; it was left untagged." });
+      report.pages.push({ page: i + 1, textSource: "none", words: 0, matched: 0, addedFromHtml: 0, furniture: 0, lost: 0, mcids: 0 });
+      untagged++;
+      continue;
+    }
+    const r = tagPage(page, i, html.get(i)!, {
       doc, struct, fonts, lang, ocr, partial: !!opts.partial, flatten: !!opts.flatten, warn,
       widgets: widgets.filter((w) => w.page === i), allWidgets: widgets, values, fields,
     });
     report.pages.push(r.report);
+    if (r.untagged) untagged++;
     if (r.report.textSource === "pdf-text") {
       report.source.hadTextLayer.push(i + 1);
       warn({ code: "duplicate_text_layer", page: i + 1, detail: "This page's text now exists twice; plain text extractors may show it doubled." });
@@ -97,7 +106,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   if (fonts.missing.size) warn({ code: "missing_glyph", detail: [...fonts.missing].join("") });
   struct.finish();
   report.structure = { elements: struct.elements, byType: struct.byType };
-  setDocumentInfo(doc, lang, title ?? "");
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged);
 
   const out = save(doc);
   report.sizeIncreaseBytes = out.length - pdf.length;
@@ -126,7 +135,7 @@ type PageCtx = {
 
 // One page: find its words, align Iris's words to them, write the overlay and
 // the page's part of the structure tree. overlay is null if the page is left alone.
-function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; overlay: { ops: string; text: string } | null } {
+function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; overlay: { ops: string; text: string } | null; untagged?: boolean } {
   const n = i + 1;
   const warn = (w: Warning) => ctx.warn({ page: n, ...w });
   const plan = buildPage(html, ctx.lang, `p${n}-`, warn);
@@ -141,7 +150,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
       const why = ctx.ocr === "off" ? "OCR is off" : "Tesseract is not installed";
       if (!ctx.partial) throw new IrisPdfError("no_text_positions", `Page ${n} has no text layer and ${why}.`);
       warn({ code: "no_text_positions", detail: `${why}; the page was left untagged.` });
-      return { report, overlay: null };
+      return { report, overlay: null, untagged: true };
     }
     words = ocr;
     report.textSource = "ocr";
@@ -153,7 +162,10 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
 
   // Align, then place every HTML word: on its page word, or beside its neighbour.
   const tokens = joinHyphenated(words);
-  const match = align(ordered.map((o) => o.word.norm), tokens.map((t) => t.norm));
+  if (Math.max(ordered.length, tokens.length) > MAX_WORDS)
+    throw new IrisPdfError("too_many_words", `Page ${n} has more than ${MAX_WORDS} words.`);
+  const { match, complete } = align(ordered.map((o) => o.word.norm), tokens.map((t) => t.norm));
+  if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
   const blockOf = new Map<number, number>();
   match.forEach((t, k) => {
     if (t < 0) {
@@ -198,7 +210,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   for (const l of links.filter((l) => !l.used)) {
     const elem = ctx.struct.add(ctx.struct.top, "Link");
     ctx.struct.objr(elem, pageObj, l.obj);
-    if (l.obj.get("Contents").isNull() && l.uri) l.obj.put("Contents", ctx.doc.newString(l.uri));
+    if (l.obj.get("Contents").isNull()) l.obj.put("Contents", ctx.doc.newString(l.uri || "Link to another part of this document"));
     warn({ code: "unmatched_link", detail: l.uri || "internal link" });
   }
   for (const w of ctx.widgets.filter((w) => !w.used && !ctx.flatten)) {

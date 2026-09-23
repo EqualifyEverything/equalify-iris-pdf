@@ -153,9 +153,70 @@ test("the gate fails a source stream that swallows the tagged text, and writes n
   assert.match(report.warnings.find((w) => w.code === "text_lost")!.detail!, /characters of the tagged text are not readable/);
 });
 
+test("a page with too many words is refused", () => {
+  const html = "<p>" + "word ".repeat(4001) + "</p>";
+  assert.throws(() => tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html }] }), { code: "too_many_words", exit: 1 });
+});
+
 test("a character no font has is reported, not a verification failure", () => {
   const report = newReport();
   tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html: "<h1>Parking Permit 🦄</h1>" }] }, {}, report);
   assert.equal(report.warnings.find((w) => w.code === "missing_glyph")?.detail, "🦄");
   assert.equal(report.verification.textPreserved, true);
+});
+
+test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  const page = doc.loadPage(0);
+  const [quad] = page.search("Parking Permit", "")[0];
+  page.createLink([quad[0], quad[1], quad[6], quad[7]], "#page=1");
+  const html = '<h1><a href="#fees">Parking Permit</a></h1><p>Residents may apply for one parking permit per car. Bring proof of address to the permit office.</p><h2 id="fees">Fees</h2><p>A permit costs twenty dollars a year.</p>';
+  const report = newReport();
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html }] }, {}, report));
+  const tree = structTree(out);
+  const [ref] = find(tree, "Reference");
+  assert.equal(ref.kids[0].type, "Link");
+  assert.equal(ref.kids[0].objr.length, 1);
+  assert.equal(ref.kids[0].objr[0].get("Contents").asString(), "Parking Permit");
+  assert.equal(find(tree, "H2")[0].dict.get("ID").asString(), "p1-fees");
+  assert.ok(!report.warnings.some((w) => w.code === "unmatched_link"));
+});
+
+test("an unmatched internal link annotation still gets a description", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  doc.loadPage(0).createLink([0, 0, 20, 20], "#page=1");
+  const report = newReport();
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-simple"), {}, report));
+  const [link] = find(structTree(out), "Link");
+  assert.equal(link.objr[0].get("Contents").asString(), "Link to another part of this document");
+  assert.ok(report.warnings.some((w) => w.code === "unmatched_link"));
+});
+
+test("a page missing from pages.json is left untouched, warned, and stops the PDF/UA claim", () => {
+  const src = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  src.insertPage(-1, src.addPage([0, 0, 306, 396], 0, {}, "BT /F1 12 Tf 72 300 Td (Second page) Tj ET"));
+  const pdf = src.saveToBuffer("").asUint8Array().slice();
+  const before = src.findPage(1).get("Contents").readStream().asString();
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(pdf, pagesOf("text-simple"), {}, report));
+  const page = doc.findPage(1);
+  assert.equal(page.get("Contents").readStream().asString(), before);
+  assert.ok(page.get("StructParents").isNull());
+  assert.ok(report.warnings.some((w) => w.code === "page_not_in_html" && w.page === 2));
+  assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.throws(() => tag(pdf, pagesOf("text-simple"), { strict: true }), { code: "strict" });
+});
+
+test("with no title there is no PDF/UA claim, no empty title, and --strict fails", () => {
+  const pages = { ...pagesOf("text-simple"), title: undefined };
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(readFixture("text-simple.pdf"), pages, {}, report));
+  const root = doc.getTrailer().get("Root");
+  assert.ok(report.warnings.some((w) => w.code === "no_title"));
+  assert.ok(root.get("ViewerPreferences", "DisplayDocTitle").isNull());
+  assert.ok(root.get("Metadata").isNull(), "no packet to write");
+  assert.throws(() => tag(readFixture("text-simple.pdf"), pages, { strict: true }), { code: "strict" });
+  const packet = xmp('<x:xmpmeta><rdf:RDF><rdf:Description><dc:title>Old</dc:title><pdfuaid:part>1</pdfuaid:part></rdf:Description></rdf:RDF></x:xmpmeta>', "", false);
+  assert.doesNotMatch(packet, /pdfuaid:part>|<dc:title><rdf:Alt>/);
+  assert.match(packet, /Old/, "an old title stays when there is no new one");
 });

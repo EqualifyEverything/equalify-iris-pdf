@@ -73,6 +73,13 @@ test("bad values are refused before anything is written, and never echoed", () =
   assert.equal(error({ nope: "x" }).code, "no_acroform_field");
 });
 
+test("a checkbox with no checked appearance cannot be checked", () => {
+  const doc = new mupdf.PDFDocument(pdf);
+  widgets(doc).get("applicant.consent")![0].getObject().delete("AP");
+  const bare = doc.saveToBuffer("").asUint8Array().slice();
+  assert.throws(() => tag(bare, pages, { values: { "applicant.consent": true } }), { code: "bad_value", exit: 3 });
+});
+
 test("the tagged form: one Form element per field, widgets tied by reference and named", () => {
   const { doc, report } = tagFixture("form-acroform");
   const forms = find(structTree(doc), "Form");

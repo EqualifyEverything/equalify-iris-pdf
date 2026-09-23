@@ -64,10 +64,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
   const add = (type: string): Node => {
     const n: Node = { type, kids: [] };
     if (e.attrs.lang && e.attrs.lang !== ctx.lang) n.lang = e.attrs.lang;
-    if (e.attrs.id && ctx.notes.has(e.attrs.id)) {
-      n.type = "Note";
-      n.id = `${ctx.prefix}${e.attrs.id}`;
-    }
+    if (e.attrs.id && ctx.notes.has(e.attrs.id)) target(n, e.attrs.id, ctx);
     parent.kids.push(n);
     return n;
   };
@@ -111,9 +108,12 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return kids(fig, { ...inner, inFigure: true });
     }
     case "a": {
+      // An internal link is a Reference; the Link inside it owns the annotation.
       const internal = e.attrs.href.startsWith("#");
-      const link = add(internal ? "Reference" : "Link");
-      if (!internal) link.href = e.attrs.href;
+      const outer = add(internal ? "Reference" : "Link");
+      const link: Node = internal ? { type: "Link", kids: [] } : outer;
+      if (internal) outer.kids.push(link);
+      link.href = e.attrs.href;
       return kids(link, inner);
     }
     case "input": case "select": case "textarea": {
@@ -161,8 +161,15 @@ function listItem(e: Elem, parent: Node, label: string, ctx: Ctx) {
   if (label) li.kids.push({ type: "Lbl", kids: [{ words: [word(label)] }] });
   const body: Node = { type: "LBody", kids: [] };
   li.kids.push(body);
-  if (e.attrs.id && ctx.notes.has(e.attrs.id)) Object.assign(body, { type: "Note", id: `${ctx.prefix}${e.attrs.id}` });
+  if (e.attrs.id && ctx.notes.has(e.attrs.id)) target(body, e.attrs.id, ctx);
   for (const k of e.kids) build(k, body, ctx);
+}
+
+// The target of an internal link gets an /ID. A paragraph or list body is a
+// footnote, so it becomes a Note; anything else (a heading, say) keeps its type.
+function target(n: Node, id: string, ctx: Ctx) {
+  n.id = `${ctx.prefix}${id}`;
+  if (n.type === "P" || n.type === "LBody") n.type = "Note";
 }
 
 const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colgroup: "Column" })[s.toLowerCase()] ?? "Both";
