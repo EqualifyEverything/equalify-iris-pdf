@@ -1,0 +1,10 @@
+{
+  "lang": "en",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>Permit Application</h1><form><p><label for=\"n\">Full name</label> <input id=\"n\" name=\"name\"></p></form>"
+    }
+  ]
+}

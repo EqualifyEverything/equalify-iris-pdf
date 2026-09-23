@@ -1,0 +1,10 @@
+{
+  "lang": "en",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>Contact</h1><p>Apply online at <a href=\"https://example.org/permits\">the city website</a>.</p>"
+    }
+  ]
+}

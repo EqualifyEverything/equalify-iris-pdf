@@ -1,0 +1,28 @@
+{
+  "name": "equalify-iris-pdf",
+  "version": "0.1.0",
+  "description": "Tag a PDF for accessibility using Iris's HTML, and fill its form fields",
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "repository": "github:EqualifyEverything/equalify-iris-pdf",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "iris-pdf": "src/cli.ts"
+  },
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\"",
+    "fixtures": "node test/fixtures/make.ts"
+  },
+  "dependencies": {
+    "mupdf": "^1.28.1",
+    "parse5": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
+}
