@@ -4,7 +4,7 @@ Use accessible HTML to tag and update a PDF.
 
 [Iris](https://github.com/EqualifyEverything/equalify-iris) turns page images into accessible HTML. This tool takes that HTML and the original PDF, and gives back **the same PDF, tagged**: a structure tree a screen reader can follow, with form fields filled in if you give it values. The page looks exactly as it did.
 
-Tagging runs offline and makes no network or model calls. An optional `review` asks a Claude model to check the result.
+Tagging runs offline and makes no network or model calls. An optional `review` asks a model to check the result.
 
 ## Install
 
@@ -79,9 +79,9 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## Review
 
-`review` checks what `check` cannot: whether the tags say what the page says. For each page it sends a Claude model the page image and what a screen reader gets from the page: the structure, text, alt text, link targets and field names. It reports missing content, wrong reading order, wrong element types or heading levels, tables, alt text, link text, field names and language. It prints one finding per line, writes them to `--report` as JSON with the tokens used and an estimated cost, and exits 0. A page the model could not review is reported with its error, the other pages are kept, and the exit is 1. Nothing in the PDF is changed.
+`review` checks what `check` cannot: whether the tags say what the page says. For each page it sends a model the page image and what a screen reader gets from the page: the structure, text, alt text, link targets and field names. It reports missing content, wrong reading order, wrong element types or heading levels, tables, alt text, link text, field names and language. It prints one finding per line, writes them to `--report` as JSON with the tokens used and an estimated cost, and exits 0. A page the model could not review is reported with its error, the other pages are kept, and the exit is 1. Nothing in the PDF is changed.
 
-**It sends page images and text to the model provider.** With `ANTHROPIC_API_KEY` set, it uses the Anthropic API. Otherwise it uses Amazon Bedrock through the AWS CLI, with your AWS credentials and region. Choose with `--provider anthropic|bedrock` and `--model <id>`. The default model is Opus 5.5, at about US$0.03 a page. See [docs/models.md](docs/models.md) for the models compared and their costs.
+**It sends page images and text to the model provider.** With `ANTHROPIC_API_KEY` set, it uses the Anthropic API. Otherwise it uses Amazon Bedrock through the AWS CLI, with your AWS credentials and region. Choose with `--provider anthropic|bedrock` and `--model <id>`. The default model is Sonnet 5, at about US$0.02 a page; on Bedrock, `--model` takes any model that reads images and calls tools. See [docs/models.md](docs/models.md) for the models compared and their costs.
 
 ## PDF/UA
 

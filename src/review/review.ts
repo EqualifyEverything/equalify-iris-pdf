@@ -1,10 +1,10 @@
 // An optional AI review of a tagged PDF. Each page's image and its
-// screen-reader outline go to a Claude model, which reports what a blind
+// screen-reader outline go to a model, which reports what a blind
 // reader would miss or get wrong. It reports; it changes nothing.
 // This sends page images and text to the model provider.
 import * as mupdf from "mupdf";
 import { execFile } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openPdf, MAX_PAGES } from "../pdf/document.ts";
@@ -13,7 +13,7 @@ import { pageOutline, headingsBefore } from "./outline.ts";
 import { IrisPdfError, EXIT, VERSION } from "../report.ts";
 
 export type Provider = "anthropic" | "bedrock";
-export const DEFAULT_MODEL: Record<Provider, string> = { anthropic: "claude-opus-5-5", bedrock: "us.anthropic.claude-opus-5-5" }; // see docs/models.md
+export const DEFAULT_MODEL: Record<Provider, string> = { anthropic: "claude-sonnet-5", bedrock: "us.anthropic.claude-sonnet-5" }; // see docs/models.md
 
 const KINDS = ["missing_content", "reading_order", "structure", "table", "alt_text", "link", "form", "language", "other"] as const;
 export type Finding = { kind: (typeof KINDS)[number]; severity: "error" | "warning"; element: string; detail: string };
@@ -30,11 +30,13 @@ export type ReviewReport = {
 export type Send = (body: Record<string, unknown>) => Promise<unknown>;
 export type ReviewOptions = { provider?: Provider; model?: string; password?: string; send?: Send; concurrency?: number };
 
-// USD per million input and output tokens, from Anthropic's list prices (September 2026).
-// Bedrock's regional profiles (us., eu., …) cost 10% more; global. ones do not.
-const PRICES: [RegExp, number, number][] = [
-  [/fable-5-1/, 10, 50], [/opus-5-5/, 4, 20], [/opus-5(?!-\d)/, 5, 25],
-  [/sonnet-5/, 2, 10], [/sonnet-4-6/, 3, 15], [/haiku-4-5/, 1, 5],
+// USD per million input and output tokens (September 2026). Claude: Anthropic's list prices;
+// Bedrock's regional profiles (us., eu., …) cost 10% more, global. ones do not.
+// Others: the AWS price list for Bedrock, us-east-2 (GPT-5.6 luna: us-gov-west-1, the only region listed).
+const PRICES: [RegExp, number, number, claude?: true][] = [
+  [/fable-5-1/, 10, 50, true], [/opus-5-5/, 4, 20, true], [/opus-5(?!-\d)/, 5, 25, true],
+  [/sonnet-5/, 2, 10, true], [/sonnet-4-6/, 3, 15, true], [/haiku-4-5/, 1, 5, true],
+  [/gpt-5\.6-luna/, 0.264, 1.584], [/kimi-k3/, 3.3, 16.5], [/mistral-large-3/, 0.5, 1.5],
 ];
 
 const TOOL = "report_findings";
@@ -118,10 +120,12 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
         let res = await ask(req);
         // With tool_choice auto a model can answer in text instead; ask once more.
         // Only its text is kept: a tool_use turn would need a tool_result.
+        // Roles must alternate (Converse enforces it), so with no text the nudge joins the first turn.
         if (!reported(res) && (res as Reply).stop_reason !== "max_tokens") {
           const said = ((res as Reply).content ?? []).filter((c) => c.type === "text" && c.text);
-          const messages = [...(req.messages as unknown[]), ...(said.length ? [{ role: "assistant", content: said }] : []),
-            { role: "user", content: `Answer by calling ${TOOL}.` }];
+          const nudge = `Answer by calling ${TOOL}.`, [first] = req.messages as { role: string; content: unknown[] }[];
+          const messages = said.length ? [first, { role: "assistant", content: said }, { role: "user", content: nudge }]
+            : [{ ...first, content: [...first.content, { type: "text", text: nudge }] }];
           res = await ask({ ...req, messages });
         }
         report.pages[i] = { page: i + 1, findings: findings(res, i + 1) };
@@ -150,7 +154,7 @@ function image(page: mupdf.PDFPage): string {
   return Buffer.from(page.toPixmap(mupdf.Matrix.scale(s, s), mupdf.ColorSpace.DeviceRGB, false).asPNG()).toString("base64");
 }
 
-// tool_choice stays auto: Opus 5.5 rejects a forced tool.
+// tool_choice stays auto: some models, Opus 5.5 among them, reject a forced tool.
 function request(model: string, png: string, reader: string): Record<string, unknown> {
   return {
     model, max_tokens: 4096, system: SYSTEM, tools: TOOLS,
@@ -192,7 +196,7 @@ export const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, "
 export function cost(provider: Provider, model: string, usage: ReviewReport["usage"]): number | null {
   const price = PRICES.find(([re]) => re.test(model));
   if (!price) return null;
-  const regional = provider === "bedrock" && !model.startsWith("global.") ? 1.1 : 1;
+  const regional = price[3] && provider === "bedrock" && !model.startsWith("global.") ? 1.1 : 1;
   return Math.round((usage.inputTokens * price[1] + usage.outputTokens * price[2]) * regional) / 1e6;
 }
 
@@ -214,21 +218,39 @@ async function anthropic(body: Record<string, unknown>): Promise<unknown> {
   }
 }
 
+// Bedrock's Converse API takes images and tools the same way for every vendor's model.
+export function toConverse(body: Record<string, any>): Record<string, unknown> {
+  const block = (b: { type: string; text?: string; source?: { data: string } }) =>
+    b.type === "image" ? { image: { format: "png", source: { bytes: b.source!.data } } } : { text: b.text ?? "" };
+  return {
+    modelId: body.model,
+    system: [{ text: body.system }],
+    messages: body.messages.map((m: { role: string; content: string | { type: string }[] }) =>
+      ({ role: m.role, content: (typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content).map(block) })),
+    toolConfig: { tools: body.tools.map((t: typeof TOOLS[0]) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.input_schema } } })) },
+    inferenceConfig: { maxTokens: body.max_tokens },
+  };
+}
+
+export function fromConverse(r: any): Reply {
+  const content = (r.output?.message?.content ?? []).flatMap((c: any) =>
+    c.toolUse ? [{ type: "tool_use", name: c.toolUse.name, input: c.toolUse.input }] : typeof c.text === "string" ? [{ type: "text", text: c.text }] : []);
+  return { content, stop_reason: r.stopReason, usage: { input_tokens: r.usage?.inputTokens ?? 0, output_tokens: r.usage?.outputTokens ?? 0 } };
+}
+
 // Through the AWS CLI, which brings the user's credentials and region, and retries.
 async function bedrock(body: Record<string, unknown>): Promise<unknown> {
-  const { model, ...rest } = body;
   const dir = mkdtempSync(join(tmpdir(), "iris-pdf-review-"));
   try {
-    writeFileSync(join(dir, "in.json"), JSON.stringify({ anthropic_version: "bedrock-2023-05-31", ...rest }));
-    await new Promise<void>((resolve, reject) => execFile("aws", [
-      "bedrock-runtime", "invoke-model", "--model-id", String(model), "--body", `fileb://${join(dir, "in.json")}`,
-      "--content-type", "application/json", "--accept", "application/json", join(dir, "out.json"),
-    ], { timeout: TIMEOUT_MS }, (err, _out, stderr) => {
-      if (!err) return resolve();
+    writeFileSync(join(dir, "in.json"), JSON.stringify(toConverse(body)));
+    const out = await new Promise<string>((resolve, reject) => execFile("aws", [
+      "bedrock-runtime", "converse", "--cli-input-json", `file://${join(dir, "in.json")}`, "--output", "json",
+    ], { timeout: TIMEOUT_MS, maxBuffer: 1 << 26 }, (err, stdout, stderr) => {
+      if (!err) return resolve(stdout);
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return reject(new IrisPdfError("no_credentials", "The Bedrock provider needs the AWS CLI. Install it, or set ANTHROPIC_API_KEY.", EXIT.badInput));
       reject(new IrisPdfError("review_failed", `Bedrock: ${stderr.trim() || err.message}`));
     }));
-    return JSON.parse(readFileSync(join(dir, "out.json"), "utf8"));
+    return fromConverse(JSON.parse(out));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,8 +1,8 @@
 # Models and costs
 
-Where this project uses a Claude model, which one, and what it costs. `tag`, `fields` and `check` use no model and cost nothing to run.
+Where this project uses a model, which one, and what it costs. `tag`, `fields` and `check` use no model and cost nothing to run.
 
-List prices, USD per million tokens (September 2026):
+Claude list prices, USD per million tokens (September 2026):
 
 | Model | Input | Output |
 |---|---|---|
@@ -12,26 +12,56 @@ List prices, USD per million tokens (September 2026):
 | Opus 5 | 5 | 25 |
 | Fable 5.1 | 10 | 50 |
 
-These apply to the Anthropic API and to Bedrock's `global.` inference profiles. Bedrock's regional profiles (`us.`, `eu.`, …) cost 10% more. Our AWS organization allows only the `us.` profiles, so the figures below include that 10%.
+These apply to the Anthropic API and to Bedrock's `global.` inference profiles. Bedrock's regional profiles (`us.`, `eu.`, …) cost 10% more. Our AWS organization allows only the `us.` profiles, so the figures below include that 10%. Other vendors' models on Bedrock are billed at AWS's published rates.
 
-## `iris-pdf review`: Opus 5.5
+## `iris-pdf review`: Sonnet 5
 
-**Use Opus 5.5, the default.** If cost matters more than precision, `--model us.anthropic.claude-sonnet-5` (or `claude-sonnet-5`) costs about two thirds as much. Haiku 4.5 is not recommended.
+**Use Sonnet 5, the default.** It found as much as any model we measured, at the lowest price among the best. On a budget, **`--model us.openai.gpt-5.6-luna`** (Bedrock only) costs about a fifteenth as much and misses a little more.
 
-Measured on 2026-09-24 on Bedrock `us.` profiles, with the prompt in `src/review/review.ts`:
+On Bedrock, `review` uses the Converse API, so `--model` takes any Bedrock model that reads images and calls tools.
 
-| Model | Seeded defects found (of 8) | Findings on 3 clean pages | 25-page scanned report (ACIR): cost, per page, time |
-|---|---|---|---|
-| Opus 5.5 | 8 | 0 | $0.72, $0.029, 54 s |
-| Sonnet 5 | 8 | 0 | $0.47, $0.019, 82 s |
-| Haiku 4.5 | 8 | 4 | $0.14, $0.005, 35 s |
+### How it was measured
 
-- **The seeded defects** were fixture pages tagged from altered HTML: a heading tagged as a paragraph, a skipped heading level, swapped columns, a list and a table tagged as paragraphs, generic alt text, and Chinese text in a document declared English.
-- **On real documents** both Opus and Sonnet found real problems: links with no destination, captions that aren't on the page, and OCR noise tagged as text.
-  - Sonnet made more mistakes. Before the prompt said so, it misread `Art` (Article) as an artifact. It also writes about twice as many output tokens, which is why it is only about a third cheaper.
-  - Haiku reported running headers as missing content despite being told they are artifacts. Once it answered without calling the findings tool.
-- **Fable 5.1** was not available on Bedrock to this account when measured. At 2.5 times Opus 5.5's price, it isn't needed for this task.
-- **Tokens.** A page is about 4,000 input tokens (the image is most of it) and 300–850 output tokens.
+On 2026-09-24, through Bedrock `us.` profiles, with the prompt in `src/review/review.ts`. The method follows equalify-iris's verifier calibration: count both what a model catches and what it invents.
+
+- **Corpus: 26 one-page PDFs.**
+  - 8 real pages from a 1962 scanned report (ACIR), tagged from equalify-iris's HTML.
+  - 8 of this repo's fixtures.
+  - 10 damaged copies with one defect each: a heading as a paragraph, a skipped heading level, two paragraphs swapped, a table as a paragraph, header cells as data cells, generic alt text, wrong alt text, a figure left untagged, a document language that is wrong, and a paragraph that is not on the page.
+- **Defects caught:** a finding of the right kind that names the defect.
+- **Real problems found:** the clean copies turned out to hold 15 real problems the tagger left. They are stray OCR fragments, dot leaders tagged as text, a title tagged twice, table cells pointing at a missing header, a link with no text, a figure with no image, and an unnamed button. These were checked by hand against the page images.
+- **False positives:** findings on clean copies that are neither of those. An example is a running header reported as missing, though artifacts are excluded by design.
+- **Draws:** three for the leaders and two for the rest. First, 26 models from 10 vendors were screened with one draw.
+
+| Model | Defects caught | Real problems found | False positives per page | Per 100 pages |
+|---|---|---|---|---|
+| Kimi K3 | 30/30 | 43/45 | 0.02 | $3.31 |
+| Opus 5.5 | 30/30 | 41/45 | 0.04 | $2.62 |
+| **Sonnet 5** | 30/30 | 40/45 | 0.04 | **$1.93** |
+| GPT-5.6 sol | 30/30 | 39/45 | 0 | not published |
+| GPT-6 astra | 30/30 | 38/45 | 0 | not published |
+| GPT-5.5 | 20/20 | 27/30 | 0 | not published |
+| GPT-6 sol | 20/20 | 23/30 | 0 | not published |
+| GPT-5.4 | 20/20 | 24/30 | 0.59 | $1.10 |
+| GPT-5.6 terra | 20/20 | 23/30 | 0.16 | $1.03 |
+| GPT-6 luna | 20/20 | 18/30 | 0.31 | not published |
+| **GPT-5.6 luna** | 28/30 | 38/45 | 0.15 | **$0.13** |
+| Haiku 4.5 | 19/20 | 22/30 | 0.63 | $0.56 |
+| Kimi K2.5 | 18/20 | 25/30 | 0.63 | $0.29 |
+| Mistral Large 3 | 19/20 | 19/30 | 1.59 | $0.24 |
+
+- **The leaders tie within the noise.** Kimi K3, Opus 5.5, Sonnet 5, GPT-5.6 sol, GPT-6 astra and GPT-5.5 all caught every defect and invented almost nothing. Sonnet 5 is the cheapest of them with a published price.
+- **GPT-5.5, GPT-5.6 sol and the GPT-6 models** have no rate in AWS's price list, so their cost is unknown. Measure them again once they are priced.
+- **GPT-5.6 luna** missed a heading tagged as a paragraph and header cells tagged as data cells, once each. It sometimes reports running headers. Its rate is published only for us-gov-west-1, and GovCloud rates tend to be higher, so treat its cost as an upper bound.
+- **Screened out after one draw:**
+  - Llama 4 Maverick, Pixtral Large, Ministral 14B, Qwen3 VL 235B and Nova Pro caught 6 to 9 of 10 defects, with up to 2.4 false positives a page.
+  - Grok 4.6 failed 9 of 27 pages, mostly by running past 4,096 output tokens.
+  - Nova 2 Lite caught 1 defect; Llama 4 Scout caught none.
+  - Gemma 3 and Nemotron Nano 2 VL never called the tool.
+  - Nova Premier has reached end of life.
+  - Fable 5.1 was unavailable on Bedrock to this account.
+- **The corpus is small**, and the leaders caught every defect in it. Widen it before choosing between them. The corpus and harness are not in this repo yet.
+- **Tokens.** Averaged over the corpus, Sonnet 5 uses about 3,800 input and 1,000 output tokens a page; GPT-5.6 luna, about 1,800 and 500.
 
 The review sends each page's image and its text to the model provider, so do not use it on documents that must not leave your machine.
 

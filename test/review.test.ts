@@ -2,9 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { review, tag, type ReviewOptions } from "../src/index.ts";
 import { IrisPdfError } from "../src/report.ts";
-import { cost, plain } from "../src/review/review.ts";
+import { cost, plain, toConverse, fromConverse } from "../src/review/review.ts";
 import { pageOutline, headingsBefore } from "../src/review/outline.ts";
 import * as mupdf from "mupdf";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { tagFixture, structTree, readFixture, mcidText } from "./helpers.ts";
 
 type Body = { model: string; tools: { name: string }[]; tool_choice?: unknown; messages: { role: string; content: any }[] };
@@ -31,11 +34,11 @@ test("sends each page's image and screen-reader view, and reads back the finding
   assert.match(text.text, /^H1 "Permit types"$/m);
   assert.match(text.text, /^  Figure Alt="Zones north and south of the river"$/m);
   assert.deepEqual(bodies[0].tools.map((t) => t.name), ["report_findings"]);
-  assert.equal(bodies[0].tool_choice, undefined); // Opus 5.5 rejects a forced tool
-  assert.equal(r.model, "us.anthropic.claude-opus-5-5");
+  assert.equal(bodies[0].tool_choice, undefined); // some models reject a forced tool
+  assert.equal(r.model, "us.anthropic.claude-sonnet-5");
   assert.deepEqual(r.pages, [{ page: 1, findings: [finding] }]);
   assert.deepEqual(r.usage, { inputTokens: 100, outputTokens: 10 });
-  assert.equal(r.estimatedCostUsd, (100 * 4 + 10 * 20) * 1.1 / 1e6);
+  assert.equal(r.estimatedCostUsd, (100 * 2 + 10 * 10) * 1.1 / 1e6);
 });
 
 test("an unknown kind or severity is kept, as other and warning", async () => {
@@ -118,6 +121,33 @@ test("cost: list prices, 10% more on Bedrock regional profiles, null when unknow
   assert.equal(cost("bedrock", "us.anthropic.claude-sonnet-5", usage), 13.2);
   assert.equal(cost("bedrock", "global.anthropic.claude-haiku-4-5-20251001-v1:0", usage), 6);
   assert.equal(cost("anthropic", "some-other-model", usage), null);
+  assert.equal(cost("bedrock", "us.openai.gpt-5.6-luna", usage), 1.848); // AWS's rate, with no Claude uplift
+});
+
+test("Bedrock requests go through Converse, the same for every vendor, and come back as Messages replies", async () => {
+  const { bodies, send } = stub(reply([]));
+  await review(tagFixture("text-simple").out, { provider: "bedrock", model: "us.openai.gpt-5.6-luna", send });
+  const input = toConverse({ ...bodies[0], messages: [...bodies[0].messages, { role: "user", content: "Answer." }] }) as any;
+  assert.equal(input.modelId, "us.openai.gpt-5.6-luna");
+  assert.match(input.system[0].text, /^You review the accessibility/);
+  const [image, text] = input.messages[0].content;
+  assert.equal(image.image.format, "png");
+  assert.equal(Buffer.from(image.image.source.bytes, "base64").subarray(1, 4).toString(), "PNG");
+  assert.match(text.text, /^What a screen reader gets/);
+  assert.deepEqual(input.messages[1], { role: "user", content: [{ text: "Answer." }] });
+  assert.equal(input.toolConfig.tools[0].toolSpec.name, "report_findings");
+  assert.deepEqual(input.toolConfig.tools[0].toolSpec.inputSchema.json.required, ["findings"]);
+  assert.deepEqual(input.inferenceConfig, { maxTokens: 4096 });
+
+  const finding = { kind: "table", severity: "error", element: "TD", detail: "x" };
+  const res = fromConverse({
+    output: { message: { content: [{ reasoningContent: {} }, { text: "Found one." }, { toolUse: { toolUseId: "t", name: "report_findings", input: { findings: [finding] } } }] } },
+    stopReason: "tool_use", usage: { inputTokens: 900, outputTokens: 40 },
+  });
+  const r = await review(tagFixture("text-simple").out, { provider: "bedrock", model: "us.openai.gpt-5.6-luna", send: async () => res });
+  assert.deepEqual(r.pages, [{ page: 1, findings: [finding] }]);
+  assert.deepEqual(r.usage, { inputTokens: 900, outputTokens: 40 });
+  assert.deepEqual(fromConverse({ stopReason: "max_tokens" }), { content: [], stop_reason: "max_tokens", usage: { input_tokens: 0, output_tokens: 0 } });
 });
 
 test("a text answer is asked again without its tool calls, which would need a tool_result", async () => {
@@ -125,6 +155,37 @@ test("a text answer is asked again without its tool calls, which would need a to
   const { bodies, send } = stub(other, reply([]));
   await review(tagFixture("text-simple").out, { send });
   assert.deepEqual(bodies[1].messages[1].content, [{ type: "text", text: "Checking." }]);
+});
+
+test("a reply with no text is asked again in the same user turn, as roles must alternate", async () => {
+  const { bodies, send } = stub({ content: [], stop_reason: "end_turn" }, reply([]));
+  await review(tagFixture("text-simple").out, { send });
+  assert.equal(bodies[1].messages.length, 1);
+  assert.deepEqual(bodies[1].messages[0].content.map((c: { type: string }) => c.type), ["image", "text", "text"]);
+  assert.equal(bodies[1].messages[0].content[2].text, "Answer by calling report_findings.");
+});
+
+test("Bedrock runs aws bedrock-runtime converse with the request in a file, and reads the reply from stdout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aws-stub-"));
+  const reply = { output: { message: { content: [{ toolUse: { name: "report_findings", input: { findings: [] } } }] } }, stopReason: "tool_use", usage: { inputTokens: 5, outputTokens: 2 } };
+  writeFileSync(join(dir, "reply.json"), JSON.stringify(reply));
+  writeFileSync(join(dir, "aws"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\ncp "\${4#file://}" "${dir}/in.json"\ncat "${dir}/reply.json"\n`, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${dir}:${path}`;
+  try {
+    const r = await review(tagFixture("text-simple").out, { provider: "bedrock" });
+    assert.deepEqual(r.pages, [{ page: 1, findings: [] }]);
+    assert.deepEqual(r.usage, { inputTokens: 5, outputTokens: 2 });
+  } finally {
+    process.env.PATH = path;
+  }
+  const argv = readFileSync(join(dir, "argv"), "utf8").trim().split("\n");
+  assert.deepEqual([...argv.slice(0, 3), ...argv.slice(4)], ["bedrock-runtime", "converse", "--cli-input-json", "--output", "json"]);
+  assert.match(argv[3], /^file:\/\/.*in\.json$/);
+  const input = JSON.parse(readFileSync(join(dir, "in.json"), "utf8"));
+  assert.equal(input.modelId, "us.anthropic.claude-sonnet-5");
+  assert.equal(Buffer.from(input.messages[0].content[0].image.source.bytes, "base64").subarray(1, 4).toString(), "PNG");
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("findings cut off at max_tokens fail the page, without a second ask", async () => {
