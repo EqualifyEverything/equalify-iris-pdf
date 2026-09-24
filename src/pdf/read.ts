@@ -5,7 +5,7 @@ import * as mupdf from "mupdf";
 import { IrisPdfError, EXIT } from "../report.ts";
 
 const MAX_DEPTH = 64;
-const MAX_CONTENT = 32 << 20; // bytes of page content read for text; a longer stream is skipped
+const MAX_CONTENT = 32 << 20; // bytes of page content read for text, per page
 
 // gid -> text, from a Type0 font's /ToUnicode CMap. Within PDF's limits
 // (9.7.6.2, 9.10.3): a CMap up to 1 MB, codes up to 4 bytes, a bfrange of 256
@@ -40,12 +40,18 @@ export function mcidText(page: mupdf.PDFObject): Map<number, string> {
   const maps = new Map<string, Map<number, string>>();
   const out = new Map<number, string>();
   const contents = page.get("Contents");
-  const streams: string[] = [];
-  for (const s of contents.isArray() ? Array.from({ length: contents.length }, (_, i) => contents.get(i)) : [contents]) {
-    const buf = s.isStream() ? s.readStream() : undefined;
-    if (buf && buf.getLength() <= MAX_CONTENT) streams.push(buf.asString());
+  // Read from the end, where our overlay is, each stream once, up to the page total.
+  const streams: string[] = [], read = new Set<number>();
+  let total = 0;
+  const list = contents.isArray() ? Array.from({ length: contents.length }, (_, i) => contents.get(i)) : [contents];
+  for (const s of list.reverse()) {
+    if (!s.isStream() || (s.isIndirect() && read.has(s.asIndirect()))) continue;
+    if (s.isIndirect()) read.add(s.asIndirect());
+    const buf = s.readStream();
+    if ((total += buf.getLength()) > MAX_CONTENT) break;
+    streams.unshift(buf.asString());
   }
-  const all = streams.join("\n").slice(0, MAX_CONTENT);
+  const all = streams.join("\n");
   let id: number | undefined, start = 0;
   for (const m of all.matchAll(/<<\/MCID (\d+)>> BDC|\bEMC\b/g)) {
     if (m[1] !== undefined) { id = Number(m[1]); start = m.index + m[0].length; continue; }

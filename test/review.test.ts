@@ -253,6 +253,19 @@ test("marked content with no EMC is read in linear time", () => {
   assert.ok(performance.now() - t < 2000);
 });
 
+test("page content is read from the end, each stream once, up to 32 MB a page", () => {
+  const doc = new mupdf.PDFDocument();
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "");
+  const big = () => doc.addStream(" ".repeat(20 << 20), {}), mark = (id: number) => doc.addStream(`<</MCID ${id}>> BDC EMC`, {});
+  const contents = doc.newArray();
+  const big2 = big();
+  [mark(0), big(), mark(1), big2, big2, big2, mark(2)].forEach((s) => { contents.push(s); });
+  page.put("Contents", contents);
+  const t = performance.now();
+  assert.deepEqual([...mcidText(page).keys()], [1, 2]); // big2 is read once; the first big would pass 32 MB
+  assert.ok(performance.now() - t < 2000);
+});
+
 test("a tree whose marked text this tool cannot decode is refused", async () => {
   const { doc } = tagFixture("text-simple");
   const page = doc.findPage(0);
