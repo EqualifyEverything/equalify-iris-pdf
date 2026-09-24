@@ -89,8 +89,8 @@ export class Overlay {
     this.text += chars.join("") + " ";
     const unit = glyphs.reduce((w, g) => w + g.advance, 0), wide = box[2] - box[0];
     // Squeezed to under half its width, extractors merge a word's repeated letters. Shrink the text instead.
-    if (unit > 0 && wide / (unit * size) < 0.5) size = Math.max(0.5, (2 * wide) / unit);
-    const h = unit > 0 ? Math.min(10, Math.max(0.1, wide / (unit * size))) : 1;
+    if (unit * size > 0 && wide / (unit * size) < 0.5) size = Math.max(0.5, (2 * wide) / unit);
+    const h = unit * size > 0 ? Math.min(10, Math.max(0.1, wide / (unit * size))) : 1;
     const m = mupdf.Matrix.concat([h, 0, 0, -1, box[0], baseline], this.toUser);
     // Consecutive glyphs from the same font share one Tj.
     const runs: { font: number; hex: string }[] = [];

@@ -112,9 +112,11 @@ test("a field the HTML does not name keeps its own name, a button its caption, a
   w.get("applicant.consent")![0].getObject().put("MK", { CA: src.newString("4") }); // the check mark's glyph, not a caption
   w.get("reset")![0].getObject().put("MK", { CA: src.newString("Clear the form") });
   w.get("state")![0].getObject().put("TU", src.newString("State of residence"));
+  w.get("office")![0].getObject().put("T", src.newString("Office (dd.mm)")); // a period in a field's own name
   const html = { ...pages, pages: [{ sourcePage: 1, html: "<p>Permit application</p>" }] };
   const out = widgets(new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), html)));
   assert.equal(out.get("applicant.consent")![0].getLabel(), "consent");
   assert.equal(out.get("reset")![0].getLabel(), "Clear the form");
   assert.equal(out.get("state")![0].getLabel(), "State of residence");
+  assert.equal(out.get("Office (dd.mm)")![0].getLabel(), "Office (dd.mm)");
 });

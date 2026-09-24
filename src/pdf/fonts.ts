@@ -81,6 +81,7 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     if (ap.isStream()) return resources(ap.get("Resources"), 0);
     if (ap.isDictionary()) ap.forEach(appearance);
   };
+  resources(doc.getTrailer().get("Root", "AcroForm", "DR"), 0); // fonts a field appearance can name
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i);
     resources(page.getInheritable("Resources"), 0);

@@ -88,6 +88,11 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   assert.equal(report.warnings.find((w) => w.code === "font_not_embedded")?.detail?.split(";")[0], "Helvetica, Helvetica-Bold");
   assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
   assert.ok(!tagFixture("text-embedded").report.warnings.some((w) => w.code === "font_not_embedded"));
+  // A field appearance can take its font from the form's default resources.
+  const form = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const helv = form.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica" });
+  form.getTrailer().get("Root").put("AcroForm", form.addObject({ Fields: [], DR: { Font: { Helv: helv } } }));
+  assert.deepEqual(unembeddedFonts(form), ["Helvetica"]);
 });
 
 test("links: the Link element owns its annotation, which gets the link text", () => {
@@ -193,6 +198,9 @@ test("a word in a very narrow box keeps its repeated letters", () => {
   const ops = overlay.toString();
   doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, { Font: fonts.embed(doc, [ops]) }, ops));
   assert.equal(doc.loadPage(0).toStructuredText("").asText().trim(), "Juasaffig");
+  // A source word drawn at size 0 still gets a finite matrix.
+  overlay.word("Permit", [100, 100, 130, 110], 110, 0);
+  assert.doesNotMatch(overlay.toString(), /NaN|Infinity/);
 });
 
 test("a character no font has is reported and left out, not a verification failure", () => {

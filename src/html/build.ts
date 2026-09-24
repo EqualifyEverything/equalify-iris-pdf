@@ -34,7 +34,6 @@ type Ctx = {
   notes: Set<string>; // ids that internal links point at
   label?: string; // text of an enclosing <label>
   legend?: string; // text of an enclosing <fieldset>'s legend
-  inFigure?: boolean;
   warn: (w: Warning) => void;
 };
 
@@ -94,20 +93,10 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return;
     }
     case "img": {
-      if (ctx.inFigure) return;
       if (e.attrs.alt === undefined) return ctx.warn({ code: "missing_alt", detail: e.attrs.src ?? "img" });
       if (e.attrs.alt === "") return; // decorative: the original drawing is already an artifact
       add("Figure").alt = e.attrs.alt;
       return;
-    }
-    case "figure": {
-      let alt: string | undefined;
-      walk(e, (d) => { if (d.tag === "img" && d.attrs.alt) alt ??= d.attrs.alt; });
-      // With no image text, a Figure would hide its caption and tables behind a missing Alt (PDF/UA-1 7.3). Keep them as content.
-      if (!alt) return kids(add("Div"), inner);
-      const fig = add("Figure");
-      fig.alt = alt;
-      return kids(fig, { ...inner, inFigure: true });
     }
     case "a": {
       // An internal link is a Reference; the Link inside it owns the annotation.

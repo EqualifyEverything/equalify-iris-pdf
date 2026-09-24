@@ -359,7 +359,7 @@ function nameField(w: Widget, label: string, doc: mupdf.PDFDocument) {
   if (!label && had.isString() && had.asString()) return;
   const push = inherited(w.field, "FT")?.asName() === "Btn" && ((inherited(w.field, "Ff")?.asNumber() ?? 0) & (1 << 16)) !== 0;
   const caption = w.widget.getObject().get("MK", "CA");
-  const name = label || (push && caption.isString() && caption.asString()) || w.name.split(".").at(-1);
+  const name = label || (push && caption.isString() && caption.asString()) || inherited(w.field, "T")?.asString();
   if (name) w.field.put("TU", doc.newString(name));
 }
 
