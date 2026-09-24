@@ -227,9 +227,9 @@ test("malformed marked content reads as unknown text; a tree the walk cannot rea
   const objr = tagged.newDictionary();
   objr.put("Type", tagged.newName("OBJR"));
   objr.put("Pg", tagged.findPage(0));
-  p.put("K", objr); // an OBJR with no /Obj: the walk reads it, the outline cannot
+  p.put("K", objr); // an OBJR with no /Obj is skipped
   const r = await review(tagged.saveToBuffer("").asUint8Array(), stub(reply([])));
-  assert.match(r.pages[0].error!, /./);
+  assert.equal(r.pages[0].error, undefined);
   const kids = tagged.newArray();
   kids.push(tagged.newNull());
   p.put("K", kids);
@@ -273,6 +273,13 @@ test("an internal link shows its target page, or its named destination", () => {
   assert.match(pageOutline(root, 0, index), /^H1 href=\(page 2\) /);
   act.put("D", doc.newString("fees"));
   assert.match(pageOutline(root, 0, index), /^H1 href=\(in this document, "fees"\) /);
+});
+
+test("the outline shows merged table cells", () => {
+  const html = '<table><tr><th>Zone</th><th colspan="2">Fees</th></tr><tr><td>North</td><td>10</td><td>20</td></tr></table>';
+  const out = tag(readFixture("text-simple.pdf"), { pages: [{ sourcePage: 1, html }], lang: "en" }, { partial: true });
+  const outline = pageOutline(structTree(mupdf.PDFDocument.openDocument(out, "application/pdf") as mupdf.PDFDocument), 0);
+  assert.match(outline, /^ {6}TH ID="p1-th2" Scope=Column ColSpan=2 "Fees"$/m);
 });
 
 test("printed findings have no control characters", () => {

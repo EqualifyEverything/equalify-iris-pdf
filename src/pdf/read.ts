@@ -5,7 +5,7 @@ import * as mupdf from "mupdf";
 import { IrisPdfError, EXIT } from "../report.ts";
 
 const MAX_DEPTH = 64;
-const MAX_CONTENT = 32 << 20; // characters of page content read for text
+const MAX_CONTENT = 32 << 20; // bytes of page content read for text; a longer stream is skipped
 
 // gid -> text, from a Type0 font's /ToUnicode CMap. Within PDF's limits
 // (9.7.6.2, 9.10.3): a CMap up to 1 MB, codes up to 4 bytes, a bfrange of 256
@@ -42,7 +42,8 @@ export function mcidText(page: mupdf.PDFObject): Map<number, string> {
   const contents = page.get("Contents");
   const streams: string[] = [];
   for (const s of contents.isArray() ? Array.from({ length: contents.length }, (_, i) => contents.get(i)) : [contents]) {
-    if (s.isStream()) streams.push(s.readStream().asString());
+    const buf = s.isStream() ? s.readStream() : undefined;
+    if (buf && buf.getLength() <= MAX_CONTENT) streams.push(buf.asString());
   }
   const all = streams.join("\n").slice(0, MAX_CONTENT);
   let id: number | undefined, start = 0;

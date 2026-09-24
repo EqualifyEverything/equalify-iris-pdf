@@ -16,12 +16,14 @@ function props(e: Elem, index: Map<number, number>): string[] {
   for (const key of ["ID", "Alt", "ActualText", "Lang", "T"]) if (str(key) !== undefined) out.push(`${key}=${quote(str(key)!)}`);
   const a = d.get("A").isDictionary() ? d.get("A") : null;
   if (a?.get("Scope").isName()) out.push(`Scope=${a.get("Scope").asName()}`);
+  for (const key of ["ColSpan", "RowSpan"]) if (a?.get(key).isNumber()) out.push(`${key}=${a.get(key).asNumber()}`);
   if (a?.get("Headers").isArray()) {
     const ids: string[] = [];
     a.get("Headers").forEach((h) => { if (h.isString()) ids.push(h.asString()); });
     out.push(`Headers=${quote(ids.join(" "))}`);
   }
   for (const o of e.objr) {
+    if (!o.isDictionary()) continue;
     const sub = o.get("Subtype").asName();
     if (o.get("Contents").isString()) out.push(`Contents=${quote(o.get("Contents").asString())}`);
     if (sub === "Link") {
