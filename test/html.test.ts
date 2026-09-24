@@ -37,6 +37,10 @@ test("images: alt text, decorative and missing", () => {
   assert.deepEqual(top.kids.map((k) => [(k as Node).type, (k as Node).alt]), [["Figure", "A map"]]);
   assert.deepEqual(warnings.map((w) => w.code), ["missing_alt"]);
   assert.equal(kids('<figure><img alt="Chart"><figcaption>Sales</figcaption></figure>'), 'Figure(Caption("Sales"))');
+  // A figure with no image text is a group: its caption and table stay content.
+  const chart = build("<figure><figcaption>Bars</figcaption><table><tr><td>1</td></tr></table><img src=x></figure>");
+  assert.equal(chart.top.kids.map(shape).join(), 'Div(Caption("Bars"), Table(TBody(TR(TD("1")))))');
+  assert.deepEqual(chart.warnings.map((w) => w.code), ["missing_alt"]);
 });
 
 test("links and footnotes", () => {
