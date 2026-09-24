@@ -115,7 +115,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   report.structure = { elements: struct.elements, byType: struct.byType };
   setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length);
 
-  const out = save(doc);
+  const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
   if (opts.verify !== false) verify(pdf, out, opts, filled.changed, overlayText, report);
   const strict = report.warnings.filter((w) => STRICT.includes(w.code));
