@@ -245,6 +245,36 @@ test("a /ToUnicode CMap over 1 MB is not read", () => {
   assert.equal(mcidText(page).get(0), "\ufffd");
 });
 
+test("marked content with no EMC is read in linear time", () => {
+  const doc = new mupdf.PDFDocument();
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC ".repeat(250_000) + "<</MCID 1>> BDC EMC");
+  const t = performance.now();
+  assert.deepEqual(mcidText(page), new Map([[1, ""]]));
+  assert.ok(performance.now() - t < 2000);
+});
+
+test("a tree whose marked text this tool cannot decode is refused", async () => {
+  const { doc } = tagFixture("text-simple");
+  const page = doc.findPage(0);
+  page.put("Contents", doc.addStream("/P <</MCID 0>> BDC BT /F1 12 Tf (Hello) Tj ET EMC /P <</MCID 1>> BDC EMC", {}));
+  await assert.rejects(review(doc.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "no_readable_structure" });
+});
+
+test("an internal link shows its target page, or its named destination", () => {
+  const { doc } = tagFixture("mixed");
+  const root = structTree(doc), index = new Map([[doc.findPage(1).asIndirect(), 1]]);
+  const annot = doc.newDictionary(), act = doc.newDictionary(), d = doc.newArray();
+  annot.put("Subtype", doc.newName("Link"));
+  act.put("S", doc.newName("GoTo"));
+  d.push(doc.findPage(1));
+  act.put("D", d);
+  annot.put("A", act);
+  root.kids[0].objr = [annot];
+  assert.match(pageOutline(root, 0, index), /^H1 href=\(page 2\) /);
+  act.put("D", doc.newString("fees"));
+  assert.match(pageOutline(root, 0, index), /^H1 href=\(in this document, "fees"\) /);
+});
+
 test("printed findings have no control characters", () => {
   assert.equal(plain("a\u001b[2Jb\nc\u009bd"), "a [2Jb c d");
 });

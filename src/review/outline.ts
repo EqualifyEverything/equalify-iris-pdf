@@ -9,7 +9,8 @@ const onPage = (e: Elem, page: number): boolean => e.pages.has(page) || e.kids.s
 
 const quote = (s: string) => JSON.stringify(s.slice(0, MAX_TEXT)) + (s.length > MAX_TEXT ? ` [${s.length - MAX_TEXT} more characters not shown]` : "");
 
-function props(e: Elem): string[] {
+// index: page object number -> page index, to show where an internal link goes.
+function props(e: Elem, index: Map<number, number>): string[] {
   const d = e.dict, out: string[] = [];
   const str = (key: string) => (d.get(key).isString() ? d.get(key).asString() : undefined);
   for (const key of ["ID", "Alt", "ActualText", "Lang", "T"]) if (str(key) !== undefined) out.push(`${key}=${quote(str(key)!)}`);
@@ -26,7 +27,10 @@ function props(e: Elem): string[] {
     if (sub === "Link") {
       const act = o.get("A"), s = act.isDictionary() && act.get("S").isName() ? act.get("S").asName() : "";
       if (s === "URI") out.push(`href=${act.get("URI").isString() ? quote(act.get("URI").asString()) : "(none)"}`);
-      else if (s === "GoTo" || (!s && !o.get("Dest").isNull())) out.push("href=(in this document)");
+      else if (s === "GoTo" || (!s && !o.get("Dest").isNull())) {
+        const d = s ? act.get("D") : o.get("Dest"), pg = d.isArray() && d.get(0).isIndirect() ? index.get(d.get(0).asIndirect()) : undefined;
+        out.push(pg !== undefined ? `href=(page ${pg + 1})` : d.isString() || d.isName() ? `href=(in this document, ${quote(d.isName() ? d.asName() : d.asString())})` : "href=(in this document)");
+      }
       else out.push(s ? `action=${s}` : "href=(none)");
     } else if (sub === "Widget") {
       const tu = inherited(o, "TU"), ft = inherited(o, "FT");
@@ -37,11 +41,11 @@ function props(e: Elem): string[] {
 }
 
 // page: 0-based.
-export function pageOutline(root: Elem, page: number): string {
+export function pageOutline(root: Elem, page: number, index = new Map<number, number>()): string {
   const lines: string[] = [];
   const visit = (e: Elem, depth: number) => {
     const pad = "  ".repeat(depth);
-    const head = [e.type, ...props(e)].join(" ");
+    const head = [e.type, ...props(e, index)].join(" ");
     const texts = e.parts.filter((p) => typeof p === "string" && p);
     // Text alone goes on the element's line; text between child elements gets lines of its own.
     if (!e.kids.length) return void lines.push(pad + head + (texts.length ? " " + quote(texts.join(" ")) : ""));

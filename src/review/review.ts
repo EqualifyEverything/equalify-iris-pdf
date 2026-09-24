@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openPdf, MAX_PAGES } from "../pdf/document.ts";
-import { structTree, type Elem } from "../pdf/read.ts";
+import { structTree, pageIndex, type Elem } from "../pdf/read.ts";
 import { pageOutline, headingsBefore } from "./outline.ts";
 import { IrisPdfError, EXIT, VERSION } from "../report.ts";
 
@@ -94,14 +94,20 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
       throw new IrisPdfError("unreadable", `The structure tree could not be read: ${(e as Error).message}`, EXIT.badInput);
     }
   })();
-  const content = (e: Elem): boolean => e.pages.size > 0 || e.kids.some(content);
-  if (!content(root)) throw new IrisPdfError("no_readable_structure", "The structure tree points at no content on any page. Only PDFs tagged by iris-pdf can be reviewed.", EXIT.badInput);
+  // Ours if it points at content, and its marked text, if any, decodes: every
+  // element this tool tags from words has text; a figure-only document has none.
+  const all = (e: Elem): Elem[] => [e, ...e.kids.flatMap(all)];
+  const marked = all(root).filter((e) => e.type !== "Figure" && e.parts.some((p) => typeof p === "string"));
+  if (!all(root).some((e) => e.pages.size) || (marked.length && !marked.some((e) => e.text))) {
+    throw new IrisPdfError("no_readable_structure", "The structure tree has no content this tool can read. Only PDFs tagged by iris-pdf can be reviewed.", EXIT.badInput);
+  }
+  const index = pageIndex(doc);
   const lang = doc.getTrailer().get("Root", "Lang"), title = doc.getMetaData("info:Title");
   const about = `Document language: ${lang.isString() ? lang.asString() : "(none)"}. Title: ${title ? JSON.stringify(title) : "(none)"}.`;
   // Each page is rendered when its worker reaches it, so only a few images are held at once.
   const build = (i: number) => {
     const before = headingsBefore(root, i);
-    return request(model, image(doc.loadPage(i)), [about, before.length ? `Headings on earlier pages:\n${before.join("\n")}` : "", `This page:\n${pageOutline(root, i) || "(no tagged content)"}`].filter(Boolean).join("\n\n"));
+    return request(model, image(doc.loadPage(i)), [about, before.length ? `Headings on earlier pages:\n${before.join("\n")}` : "", `This page:\n${pageOutline(root, i, index) || "(no tagged content)"}`].filter(Boolean).join("\n\n"));
   };
   const report: ReviewReport = { tool: `iris-pdf ${VERSION}`, provider, model, pages: [], usage: { inputTokens: 0, outputTokens: 0 }, estimatedCostUsd: null };
   let next = 0;

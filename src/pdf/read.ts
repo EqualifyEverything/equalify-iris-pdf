@@ -5,6 +5,7 @@ import * as mupdf from "mupdf";
 import { IrisPdfError, EXIT } from "../report.ts";
 
 const MAX_DEPTH = 64;
+const MAX_CONTENT = 32 << 20; // characters of page content read for text
 
 // gid -> text, from a Type0 font's /ToUnicode CMap. Within PDF's limits
 // (9.7.6.2, 9.10.3): a CMap up to 1 MB, codes up to 4 bytes, a bfrange of 256
@@ -32,7 +33,8 @@ function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   return map;
 }
 
-// The text inside each marked-content id on a page, from our overlay.
+// The text inside each marked-content id on a page, from our overlay. One
+// linear pass: a BDC with no EMC must not cost a scan of the rest.
 export function mcidText(page: mupdf.PDFObject): Map<number, string> {
   const fonts = page.get("Resources", "Font");
   const maps = new Map<string, Map<number, string>>();
@@ -42,14 +44,19 @@ export function mcidText(page: mupdf.PDFObject): Map<number, string> {
   for (const s of contents.isArray() ? Array.from({ length: contents.length }, (_, i) => contents.get(i)) : [contents]) {
     if (s.isStream()) streams.push(s.readStream().asString());
   }
-  const all = streams.join("\n");
-  for (const [, id, body] of all.matchAll(/<<\/MCID (\d+)>> BDC([\s\S]*?)EMC/g)) {
+  const all = streams.join("\n").slice(0, MAX_CONTENT);
+  let id: number | undefined, start = 0;
+  for (const m of all.matchAll(/<<\/MCID (\d+)>> BDC|\bEMC\b/g)) {
+    if (m[1] !== undefined) { id = Number(m[1]); start = m.index + m[0].length; continue; }
+    if (id === undefined) continue;
+    const body = all.slice(start, m.index);
     let text = "";
     for (const [, font, hex] of body.matchAll(/\/(\w+) [\d.]+ Tf <([0-9a-f]*)>/g)) {
       if (!maps.has(font)) maps.set(font, toUnicode(fonts.isDictionary() ? fonts.get(font) : fonts));
       for (const g of hex.match(/.{4}/g) ?? []) text += maps.get(font)!.get(parseInt(g, 16)) ?? "�";
     }
-    out.set(Number(id), text.replace(/\s+/g, " ").trim());
+    out.set(id, text.replace(/\s+/g, " ").trim());
+    id = undefined;
   }
   return out;
 }
@@ -64,9 +71,15 @@ export type Elem = {
 // The structure tree, each element with the text of its own marked content.
 // A root /K that is an array gives a root of type "". An element seen twice
 // (a cycle or a shared kid) is read once; nesting past MAX_DEPTH is refused.
-export function structTree(doc: mupdf.PDFDocument): Elem {
+// Page object number -> 0-based page index.
+export function pageIndex(doc: mupdf.PDFDocument): Map<number, number> {
   const index = new Map<number, number>();
   for (let i = 0; i < doc.countPages(); i++) index.set(doc.findPage(i).asIndirect(), i);
+  return index;
+}
+
+export function structTree(doc: mupdf.PDFDocument): Elem {
+  const index = pageIndex(doc);
   const cache = new Map<number, Map<number, string>>();
   const textOn = (pg: mupdf.PDFObject, mcid: number) => {
     if (!pg.isIndirect()) return "";
