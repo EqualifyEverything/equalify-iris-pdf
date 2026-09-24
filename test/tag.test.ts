@@ -261,6 +261,12 @@ test("marked content left from an old tag tree is reported and stops the PDF/UA 
   const n = annot.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] });
   annot.findPage(0).put("Annots", [annot.addObject({ Type: "Annot", Subtype: "Link", Rect: [0, 0, 1, 1], AP: { N: n } })]);
   assert.deepEqual(pagesWithMcids(annot), [1]);
+  // An appearance dictionary that holds itself ends the walk, not the run.
+  const cycle = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const self = cycle.addObject({});
+  self.put("N", self);
+  cycle.findPage(0).put("Annots", [cycle.addObject({ Type: "Annot", Subtype: "Link", Rect: [0, 0, 1, 1], AP: self })]);
+  assert.deepEqual([pagesWithMcids(cycle), unembeddedFonts(cycle)], [[], []]);
 });
 
 test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {

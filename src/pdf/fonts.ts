@@ -79,10 +79,11 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     const d = base.isDictionary() ? base.get("FontDescriptor") : base;
     if (!d.isDictionary() || !["FontFile", "FontFile2", "FontFile3"].some((k) => d.get(k).isStream())) out.add(f.get("BaseFont").asName() || "(unnamed)");
   };
-  const appearance = (ap: mupdf.PDFObject) => {
+  // /AP holds /N, /R, /D, each a stream or a dictionary of streams: two levels.
+  const appearance = (ap: mupdf.PDFObject, depth = 0) => {
     // An appearance with no resources of its own takes the form's (/DR).
     if (ap.isStream()) return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
-    if (ap.isDictionary()) ap.forEach(appearance);
+    if (ap.isDictionary() && depth < 2) ap.forEach((x) => appearance(x, depth + 1));
   };
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i);

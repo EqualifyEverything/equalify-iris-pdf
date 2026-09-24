@@ -52,12 +52,13 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
     else if (contents.isStream()) streams.push(contents);
     // Annotation appearances draw too.
     let appearance = false;
-    const ap = (a: mupdf.PDFObject) => {
+    // /AP holds /N, /R, /D, each a stream or a dictionary of streams: two levels.
+    const ap = (a: mupdf.PDFObject, depth: number) => {
       if (appearance) return;
       if (a.isStream()) appearance = marked(a) || forms(a.get("Resources"), 1);
-      else if (a.isDictionary()) a.forEach(ap);
+      else if (a.isDictionary() && depth < 2) a.forEach((x) => ap(x, depth + 1));
     };
-    page.get("Annots").forEach((a) => { if (a.isDictionary()) ap(a.get("AP")); });
+    page.get("Annots").forEach((a) => { if (a.isDictionary()) ap(a.get("AP"), 0); });
     if ((streams.length && marked(...streams)) || forms(page.getInheritable("Resources"), 0) || appearance) out.push(i + 1);
   }
   return out;
