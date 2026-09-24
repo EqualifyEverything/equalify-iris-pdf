@@ -1,0 +1,10 @@
+{
+  "lang": "en",
+  "title": "Test document",
+  "pages": [
+    {
+      "sourcePage": 1,
+      "html": "<h1>Permit types</h1><ol><li>Resident</li><li>Visitor</li></ol><table><tr><th scope=col>Zone</th><th scope=col>Fee</th></tr><tr><td>North</td><td>20</td></tr></table><figure><img alt=\"Zones north and south of the river\"><figcaption>Map of the permit zones</figcaption></figure><p>Apply online at <a href=\"https://example.org/permits\">the city website</a>.<a href=\"#fn1\">1</a></p><ol><li id=\"fn1\">Renewals are online too.</li></ol>"
+    }
+  ]
+}

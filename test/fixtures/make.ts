@@ -21,10 +21,25 @@ function helvetica(doc: mupdf.PDFDocument, bold = false) {
   });
 }
 
-function textDoc(pages: string[]): mupdf.PDFDocument {
+// embed: embedded fonts, as PDF/UA requires, so the file can reach the claim.
+// mupdf embeds only composite fonts, so each string is rewritten as glyph ids.
+function textDoc(pages: string[], embed = false): mupdf.PDFDocument {
   const doc = new mupdf.PDFDocument();
-  const res = doc.addObject({ Font: { F1: helvetica(doc), F2: helvetica(doc, true) } });
-  for (const c of pages) doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, c));
+  if (!embed) {
+    const res = doc.addObject({ Font: { F1: helvetica(doc), F2: helvetica(doc, true) } });
+    for (const c of pages) doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, c));
+    return doc;
+  }
+  const fonts = { F1: new mupdf.Font("Helvetica"), F2: new mupdf.Font("Helvetica-Bold") };
+  const res = doc.addObject({ Font: { F1: doc.addFont(fonts.F1), F2: doc.addFont(fonts.F2) } });
+  const gids = (font: mupdf.Font, s: string) => "<" + [...s].map((c) => font.encodeCharacter(c).toString(16).padStart(4, "0")).join("") + ">";
+  const unlit = (s: string) => s.slice(1, -1).replace(/\\(.)/g, "$1");
+  for (const c of pages) {
+    const content = c.replace(/\/(F[12]) ([\d.]+) Tf (.*?) (\((?:\\.|[^\\)])*\)) Tj/g,
+      (_, f: "F1" | "F2", size, td, str) => `/${f} ${size} Tf ${td} ${gids(fonts[f], unlit(str))} Tj`);
+    doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, content));
+  }
+  doc.subsetFonts();
   return doc;
 }
 
@@ -52,6 +67,10 @@ const simpleHtml =
   "Bring proof of address to the permit office.</p><h2>Fees</h2><p>A permit costs twenty dollars a year.</p>";
 save("text-simple.pdf", textDoc([simple]));
 pagesJson("text-simple.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
+
+// --- text-embedded: text-simple with its fonts embedded.
+save("text-embedded.pdf", textDoc([simple], true));
+pagesJson("text-embedded.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
 
 // --- text-two-column: operators run across the columns line by line, so the
 // PDF's own order interleaves them. Iris's HTML reads left column first.
@@ -101,7 +120,7 @@ pagesJson("mixed.pages.json", [
 ]);
 
 // --- blank-page: page 2 is empty, and Iris sends no HTML for it.
-save("blank-page.pdf", textDoc([simple, ""]));
+save("blank-page.pdf", textDoc([simple, ""], true));
 pagesJson("blank-page.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
 
 // --- links: a link annotation over its text.
@@ -122,6 +141,34 @@ pagesJson("blank-page.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
 pagesJson("links.pages.json", [{
   sourcePage: 1,
   html: '<h1>Contact</h1><p>Apply online at <a href="https://example.org/permits">the city website</a>.</p>',
+}]);
+
+// --- structure: embedded fonts, and a list, table, figure, footnote and link, so veraPDF sees each shape.
+{
+  const doc = textDoc([
+    furniture(1) +
+    show(20, 340, 14, "Permit types", "F2") +
+    show(20, 322, 9, "1. Resident") + show(20, 310, 9, "2. Visitor") +
+    show(20, 290, 9, "Zone") + show(120, 290, 9, "Fee") +
+    show(20, 278, 9, "North") + show(120, 278, 9, "20") +
+    show(20, 250, 9, "Map of the permit zones") +
+    show(20, 225, 9, "Apply online at the city website.1") +
+    show(20, 205, 7, "1. Renewals are online too."),
+  ], true);
+  const x0 = 20 + width("Apply online at ", 9), x1 = x0 + width("the city website", 9);
+  doc.loadPage(0).getObject().put("Annots", [doc.addObject({
+    Type: "Annot", Subtype: "Link", Rect: [x0, 222, x1, 233], Border: [0, 0, 0],
+    A: { S: "URI", URI: doc.newString("https://example.org/permits") },
+  })]);
+  save("structure.pdf", doc);
+}
+pagesJson("structure.pages.json", [{
+  sourcePage: 1,
+  html: "<h1>Permit types</h1><ol><li>Resident</li><li>Visitor</li></ol>" +
+    "<table><tr><th scope=col>Zone</th><th scope=col>Fee</th></tr><tr><td>North</td><td>20</td></tr></table>" +
+    '<figure><img alt="Zones north and south of the river"><figcaption>Map of the permit zones</figcaption></figure>' +
+    '<p>Apply online at <a href="https://example.org/permits">the city website</a>.<a href="#fn1">1</a></p>' +
+    '<ol><li id="fn1">Renewals are online too.</li></ol>',
 }]);
 
 // --- cjk: a non-Latin script, with an embedded CJK font.

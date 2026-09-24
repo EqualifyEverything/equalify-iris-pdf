@@ -50,6 +50,21 @@ test("opens an encrypted PDF with its password", () => {
   assert.equal(back.countPages(), doc.countPages());
 });
 
+test("a damaged PDF is rewritten from its repair, checked, and keeps its encryption", () => {
+  // Point startxref at the wrong place, as a bad split or truncated upload does.
+  const damage = (pdf: Uint8Array) => new Uint8Array(Buffer.from(Buffer.from(pdf).toString("latin1").replace(/startxref\s+\d+\s+%%EOF\s*$/, "startxref\n9\n%%EOF\n"), "latin1"));
+  const report = newReport();
+  const out = tag(damage(readFixture("text-simple.pdf")), simple, {}, report);
+  assert.ok(report.warnings.some((w) => w.code === "repaired"));
+  assert.equal(report.verification.textPreserved, true);
+  assert.equal(report.verification.differingPixels, 0);
+  assert.ok(!new mupdf.PDFDocument(out).wasRepaired());
+  assert.throws(() => tag(damage(readFixture("text-simple.pdf")), simple, { strict: true }), { code: "strict", message: /repaired/ });
+  const locked = tag(damage(readFixture("encrypted.pdf")), simple, { password: "open" });
+  const back = new mupdf.PDFDocument(locked);
+  assert.ok(back.needsPassword() && back.authenticatePassword("open"));
+});
+
 test("--allow-signed tags a signed PDF and says the signature is gone", () => {
   const report = newReport();
   tag(readFixture("signed.pdf"), pagesOf("form-acroform"), { allowSigned: true }, report);

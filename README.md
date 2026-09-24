@@ -39,7 +39,7 @@ iris-pdf check --pdf out.pdf          # runs veraPDF's PDF/UA-1 check, if instal
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
 | `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
-| `--strict` | Fail on any warning that means content went untagged or unmatched. |
+| `--strict` | Fail on any warning that means content went untagged or unmatched, or that the file was `repaired`. |
 
 ### pages.json
 
@@ -65,7 +65,7 @@ Text fields take strings, checkboxes `true`/`false`, radio groups and lists one 
 1. The page's original drawing is kept byte for byte and marked as an artifact.
 2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan).
 3. An invisible text layer is added with Iris's words at those positions, tagged with the structure from the HTML: headings, lists, tables with their headers, links, figures with alt text, form fields.
-4. The file is saved incrementally: the original bytes are the start of the output.
+4. The file is saved incrementally: the original bytes are the start of the output. A damaged file is instead rewritten from mupdf's repair of it, with warning `repaired`.
 
 Then two checks run, and if either fails nothing is written (exit 2):
 
@@ -74,16 +74,16 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## The report
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` and `page_not_tagged` (the page is left as it was; a blank page needs no HTML and is not warned), `no_title`, `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` and `page_not_tagged` (the page is left as it was; a blank page needs no HTML and is not warned), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
-The output declares PDF/UA-1 only when it has a title and every page is tagged.
+The output declares PDF/UA-1 only when it has a title, every page is tagged, every source font is embedded, and no page drawing has leftover marked content. The tests check each such claim with veraPDF.
 
 ## Refusals and exit codes
 
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `damaged`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. |
 
@@ -97,7 +97,7 @@ Form values are personal data. They are never printed, logged, or put in the rep
 
 - **The text exists twice** on a page that already had a text layer: the original, now an artifact, and ours. Screen readers use ours. Plain copy-and-paste tools may show the text doubled. The report warns `duplicate_text_layer`.
 - A table that continues onto the next page is tagged as two tables.
-- `check` needs veraPDF installed. Checking the whole corpus in CI is not done yet.
+- `check` needs veraPDF installed.
 - A form with no fields (a flat form) cannot be filled.
 
 ## License

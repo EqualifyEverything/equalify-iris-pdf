@@ -10,6 +10,7 @@ export type Source = {
   signed: boolean;
   acroform: boolean;
   xfa: boolean;
+  repaired: boolean; // damaged: saved as a full rewrite, not an update
   warnings: Warning[];
 };
 
@@ -37,16 +38,17 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   forEachField(doc, (field) => {
     if (inherited(field, "FT")?.asName() === "Sig" && inherited(field, "V")) signed = true;
   });
-  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, warnings };
+  const repaired = doc.wasRepaired() || !doc.canBeSavedIncrementally();
+  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, warnings };
   if (opts.readOnly) return source;
 
   // An owner password can forbid changes. We do not work around it.
   if (!doc.hasPermission("edit")) {
     throw new IrisPdfError("permissions_denied", "The PDF's owner does not permit changes to it.");
   }
-  if (doc.wasRepaired() || !doc.canBeSavedIncrementally()) {
-    throw new IrisPdfError("damaged", "The PDF is damaged, so it cannot be updated without rewriting it.");
-  }
+  // A damaged file cannot be updated in place. It is rewritten from what mupdf
+  // repaired, which is also what the checks render as the original.
+  if (source.repaired) warnings.push({ code: "repaired", detail: "The PDF was damaged; the output is a rewritten copy, not an update of the original bytes." });
   const pages = doc.countPages();
   if (pages > MAX_PAGES) {
     throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
@@ -90,7 +92,7 @@ export function inherited(field: mupdf.PDFObject, key: string): mupdf.PDFObject 
   return null;
 }
 
-export function save(doc: mupdf.PDFDocument): Uint8Array {
+export function save(doc: mupdf.PDFDocument, rewrite = false): Uint8Array {
   // A copy: the buffer lives in mupdf's memory, which can move.
-  return doc.saveToBuffer("incremental,compress").asUint8Array().slice();
+  return doc.saveToBuffer(rewrite ? "compress,encrypt=keep" : "incremental,compress").asUint8Array().slice();
 }

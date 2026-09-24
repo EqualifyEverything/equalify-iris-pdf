@@ -25,6 +25,11 @@ export class FontSet {
     return { font: 0, gid: 0, advance: 0.5 };
   }
 
+  // Advance of a string at size 1.
+  width(text: string) {
+    return [...text].reduce((w, c) => w + this.glyph(c).advance, 0);
+  }
+
   resourceName(font: number) {
     return `IrisF${font}`;
   }
@@ -37,9 +42,53 @@ export class FontSet {
     for (const i of this.used) refs[this.resourceName(i)] = tmp.addFont(this.fonts[i]);
     for (const s of streams) tmp.insertPage(-1, tmp.addPage([0, 0, 1, 1], 0, { Font: refs }, s));
     tmp.subsetFonts();
+    // Codes are glyph ids. PDF/UA-1 (7.21.3.2) wants a TrueType CIDFont to say so.
+    for (const ref of Object.values(refs)) {
+      const cid = ref.get("DescendantFonts").get(0);
+      if (cid.get("Subtype").asName() === "CIDFontType2" && cid.get("CIDToGIDMap").isNull()) cid.put("CIDToGIDMap", tmp.newName("Identity"));
+    }
     const out: Record<string, mupdf.PDFObject> = {};
     const graft = doc.newGraftMap();
     for (const [name, ref] of Object.entries(refs)) out[name] = graft.graftObject(ref);
     return out;
   }
+}
+
+// Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).
+// Looks in every page, form XObject, tiling pattern and annotation appearance. Nesting past a depth of 32 is not checked, and counts as unembedded.
+export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
+  const out = new Set<string>(), seen = new Set<number>(), dr = doc.getTrailer().get("Root", "AcroForm", "DR");
+  const once = (o: mupdf.PDFObject) => {
+    if (!o.isIndirect()) return true;
+    if (seen.has(o.asIndirect())) return false;
+    seen.add(o.asIndirect());
+    return true;
+  };
+  const resources = (res: mupdf.PDFObject, depth: number) => {
+    if (depth > 32) return void out.add("(nested too deeply to check)");
+    if (!res.isDictionary() || !once(res)) return;
+    res.get("Font").forEach((f) => { if (f.isDictionary() && once(f)) font(f, depth); });
+    res.get("XObject").forEach((x) => { if (x.isStream() && x.get("Subtype").asName() === "Form" && once(x)) resources(x.get("Resources"), depth + 1); });
+    res.get("Pattern").forEach((p) => { if (p.isStream() && once(p)) resources(p.get("Resources"), depth + 1); }); // tiling patterns draw too
+  };
+  const font = (f: mupdf.PDFObject, depth: number) => {
+    const type = f.get("Subtype").asName();
+    if (type === "Type3") return resources(f.get("Resources"), depth + 1);
+    const kids = f.get("DescendantFonts");
+    const base = type !== "Type0" ? f : kids.isArray() ? kids.get(0) : kids;
+    const d = base.isDictionary() ? base.get("FontDescriptor") : base;
+    if (!d.isDictionary() || !["FontFile", "FontFile2", "FontFile3"].some((k) => d.get(k).isStream())) out.add(f.get("BaseFont").asName() || "(unnamed)");
+  };
+  // /AP holds /N, /R, /D, each a stream or a dictionary of streams: two levels.
+  const appearance = (ap: mupdf.PDFObject, depth = 0) => {
+    // An appearance with no resources of its own takes the form's (/DR).
+    if (ap.isStream()) return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
+    if (ap.isDictionary() && depth < 2) ap.forEach((x) => appearance(x, depth + 1));
+  };
+  for (let i = 0; i < doc.countPages(); i++) {
+    const page = doc.findPage(i);
+    resources(page.getInheritable("Resources"), 0);
+    page.get("Annots").forEach((a) => { if (a.isDictionary()) appearance(a.get("AP")); });
+  }
+  return [...out];
 }

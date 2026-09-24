@@ -36,7 +36,11 @@ test("images: alt text, decorative and missing", () => {
   const { top, warnings } = build('<img alt="A map"><img alt=""><img src="x.png">');
   assert.deepEqual(top.kids.map((k) => [(k as Node).type, (k as Node).alt]), [["Figure", "A map"]]);
   assert.deepEqual(warnings.map((w) => w.code), ["missing_alt"]);
-  assert.equal(kids('<figure><img alt="Chart"><figcaption>Sales</figcaption></figure>'), 'Figure(Caption("Sales"))');
+  // A figure is a group: its caption and any table stay content, not hidden behind the image's Alt.
+  assert.equal(kids('<figure><img alt="Chart"><figcaption>Sales</figcaption></figure>'), 'Div(Figure, Caption("Sales"))');
+  const chart = build("<figure><figcaption>Bars</figcaption><table><tr><td>1</td></tr></table><img src=x></figure>");
+  assert.equal(chart.top.kids.map(shape).join(), 'Div(Caption("Bars"), Table(TBody(TR(TD("1")))))');
+  assert.deepEqual(chart.warnings.map((w) => w.code), ["missing_alt"]);
 });
 
 test("links and footnotes", () => {
@@ -46,6 +50,10 @@ test("links and footnotes", () => {
   assert.equal((top.kids[1] as Node).id, "p1-n1");
   // A heading that is a link target stays a heading.
   assert.equal(kids('<p><a href="#fees">Fees</a></p><h2 id="fees">Fees</h2>'), 'P(Reference(Link("Fees"))), H2("Fees")');
+  // A footnote list item keeps LI > LBody; the Note is inside.
+  const list = build('<p>x<a href="#fn-1">1</a></p><ol><li id="fn-1">Source.</li></ol>').top.kids[1] as Node;
+  assert.equal(shape(list), 'L(LI(Lbl("1."), LBody(Note("Source."))))');
+  assert.equal(((((list.kids[0] as Node).kids[1] as Node).kids[0]) as Node).id, "p1-fn-1");
 });
 
 test("form controls take their label from for=, an enclosing label, or aria-label", () => {

@@ -90,6 +90,7 @@ test("the tagged form: one Form element per field, widgets tied by reference and
   const w = widgets(doc);
   assert.equal(w.get("applicant.name")![0].getLabel(), "Full name");
   assert.equal(w.get("contact")![0].getLabel(), "Contact me by");
+  assert.equal(w.get("reset")![0].getLabel(), "reset", "a field the HTML does not name still gets a name");
   assert.equal(doc.loadPage(0).getObject().get("Tabs").asName(), "S");
 });
 
@@ -103,4 +104,19 @@ test("--flatten bakes the values into the page and tags them as text", () => {
   assert.ok(ps.includes("email"));
   assert.equal(report.verification.textPreserved, true);
   assert.ok(!JSON.stringify(report).includes("Lovelace"), "values never reach the report");
+});
+
+test("a field the HTML does not name keeps its own name, a button its caption, a check box its field name", () => {
+  const src = new mupdf.PDFDocument(pdf);
+  const w = widgets(src);
+  w.get("applicant.consent")![0].getObject().put("MK", { CA: src.newString("4") }); // the check mark's glyph, not a caption
+  w.get("reset")![0].getObject().put("MK", { CA: src.newString("Clear the form") });
+  w.get("state")![0].getObject().put("TU", src.newString("State of residence"));
+  w.get("office")![0].getObject().put("T", src.newString("Office (dd.mm)")); // a period in a field's own name
+  const html = { ...pages, pages: [{ sourcePage: 1, html: "<p>Permit application</p>" }] };
+  const out = widgets(new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), html)));
+  assert.equal(out.get("applicant.consent")![0].getLabel(), "consent");
+  assert.equal(out.get("reset")![0].getLabel(), "Clear the form");
+  assert.equal(out.get("state")![0].getLabel(), "State of residence");
+  assert.equal(out.get("Office (dd.mm)")![0].getLabel(), "Office (dd.mm)");
 });

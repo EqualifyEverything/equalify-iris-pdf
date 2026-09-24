@@ -34,7 +34,6 @@ type Ctx = {
   notes: Set<string>; // ids that internal links point at
   label?: string; // text of an enclosing <label>
   legend?: string; // text of an enclosing <fieldset>'s legend
-  inFigure?: boolean;
   warn: (w: Warning) => void;
 };
 
@@ -94,18 +93,10 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return;
     }
     case "img": {
-      if (ctx.inFigure) return;
       if (e.attrs.alt === undefined) return ctx.warn({ code: "missing_alt", detail: e.attrs.src ?? "img" });
       if (e.attrs.alt === "") return; // decorative: the original drawing is already an artifact
       add("Figure").alt = e.attrs.alt;
       return;
-    }
-    case "figure": {
-      const fig = add("Figure");
-      let alt: string | undefined;
-      walk(e, (d) => { if (d.tag === "img" && d.attrs.alt) alt ??= d.attrs.alt; });
-      if (alt) fig.alt = alt;
-      return kids(fig, { ...inner, inFigure: true });
     }
     case "a": {
       // An internal link is a Reference; the Link inside it owns the annotation.
@@ -159,17 +150,23 @@ function listItem(e: Elem, parent: Node, label: string, ctx: Ctx) {
   const li: Node = { type: "LI", kids: [] };
   parent.kids.push(li);
   if (label) li.kids.push({ type: "Lbl", kids: [{ words: [word(label)] }] });
-  const body: Node = { type: "LBody", kids: [] };
+  let body: Node = { type: "LBody", kids: [] };
   li.kids.push(body);
-  if (e.attrs.id && ctx.notes.has(e.attrs.id)) target(body, e.attrs.id, ctx);
+  // A footnote list item: LI may hold only Lbl and LBody, so the Note goes inside the LBody.
+  if (e.attrs.id && ctx.notes.has(e.attrs.id)) {
+    const note: Node = { type: "P", kids: [] };
+    body.kids.push(note);
+    target(note, e.attrs.id, ctx);
+    body = note;
+  }
   for (const k of e.kids) build(k, body, ctx);
 }
 
-// The target of an internal link gets an /ID. A paragraph or list body is a
-// footnote, so it becomes a Note; anything else (a heading, say) keeps its type.
+// The target of an internal link gets an /ID. A paragraph is a footnote, so
+// it becomes a Note; anything else (a heading, say) keeps its type.
 function target(n: Node, id: string, ctx: Ctx) {
   n.id = `${ctx.prefix}${id}`;
-  if (n.type === "P" || n.type === "LBody") n.type = "Note";
+  if (n.type === "P") n.type = "Note";
 }
 
 const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colgroup: "Column" })[s.toLowerCase()] ?? "Both";

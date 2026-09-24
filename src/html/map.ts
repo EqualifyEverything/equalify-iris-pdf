@@ -1,5 +1,5 @@
 // The spec's §8.1 table: which PDF structure type each HTML element becomes.
-// Special cases (li, dl, figure, img, a, input, label) are handled where the
+// Special cases (li, dl, img, a, input, label) are handled where the
 // tree is built, in tag.ts; this file only names the types.
 
 export const STRUCT: Record<string, string> = {
@@ -8,7 +8,7 @@ export const STRUCT: Record<string, string> = {
   ul: "L", ol: "L", dl: "L", li: "LI", dt: "Lbl", dd: "LBody",
   table: "Table", caption: "Caption", thead: "THead", tbody: "TBody", tfoot: "TFoot",
   tr: "TR", th: "TH", td: "TD",
-  figure: "Figure", figcaption: "Caption", img: "Figure",
+  figure: "Div", figcaption: "Caption", img: "Figure",
   a: "Link",
   blockquote: "BlockQuote", code: "Code", pre: "Code",
   input: "Form", select: "Form", textarea: "Form",
