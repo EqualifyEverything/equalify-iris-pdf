@@ -23,8 +23,10 @@ function props(e: Elem): string[] {
   for (const o of e.objr) {
     const sub = o.get("Subtype").asName();
     if (sub === "Link") {
-      const uri = o.get("A").get("URI");
-      out.push(uri.isString() ? `href=${quote(uri.asString())}` : "href=(in this document)");
+      const act = o.get("A"), s = act.isDictionary() && act.get("S").isName() ? act.get("S").asName() : "";
+      if (s === "URI") out.push(`href=${act.get("URI").isString() ? quote(act.get("URI").asString()) : "(none)"}`);
+      else if (s === "GoTo" || (!s && !o.get("Dest").isNull())) out.push("href=(in this document)");
+      else out.push(s ? `action=${s}` : "href=(none)");
     } else if (sub === "Widget") {
       const tu = inherited(o, "TU"), ft = inherited(o, "FT");
       out.push(`field=${ft?.isName() ? ft.asName() : "?"}`, `name=${tu?.isString() ? quote(tu.asString()) : "(none)"}`);

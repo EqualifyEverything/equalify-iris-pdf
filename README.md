@@ -79,7 +79,7 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## Review
 
-`review` checks what `check` cannot: whether the tags say what the page says. For each page it sends a Claude model the page image and what a screen reader gets from the page: the structure, text, alt text, link targets and field names. It reports missing content, wrong reading order, wrong element types or heading levels, tables, alt text, link text, field names and language. It prints one finding per line, writes them to `--report` as JSON with the tokens used and an estimated cost, and exits 0. Nothing in the PDF is changed.
+`review` checks what `check` cannot: whether the tags say what the page says. For each page it sends a Claude model the page image and what a screen reader gets from the page: the structure, text, alt text, link targets and field names. It reports missing content, wrong reading order, wrong element types or heading levels, tables, alt text, link text, field names and language. It prints one finding per line, writes them to `--report` as JSON with the tokens used and an estimated cost, and exits 0. A page the model could not review is reported with its error, the other pages are kept, and the exit is 1. Nothing in the PDF is changed.
 
 **It sends page images and text to the model provider.** With `ANTHROPIC_API_KEY` set, it uses the Anthropic API. Otherwise it uses Amazon Bedrock through the AWS CLI, with your AWS credentials and region. Choose with `--provider anthropic|bedrock` and `--model <id>`. The default model is Opus 5.5, at about US$0.03 a page. See [docs/models.md](docs/models.md) for the models compared and their costs.
 
@@ -92,7 +92,7 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed). |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed on a page). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 
@@ -107,7 +107,7 @@ Form values are personal data. They are never printed, logged, or put in the rep
 - **The text exists twice** on a page that already had a text layer: the original, now an artifact, and ours. Screen readers use ours. Plain copy-and-paste tools may show the text doubled. The report warns `duplicate_text_layer`.
 - A table that continues onto the next page is tagged as two tables.
 - `check` needs veraPDF installed.
-- `review` reads only structure tagged by this tool. Its findings are a model's judgment: check them before acting on them.
+- `review` reads only structure tagged by this tool. Its findings are a model's judgment: check them before acting on them. Text in the document can mislead the model, so no findings does not prove a document accessible.
 - A form with no fields (a flat form) cannot be filled.
 
 ## License

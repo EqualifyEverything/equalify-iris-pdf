@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { review, type ReviewOptions } from "../src/index.ts";
+import { review, tag, type ReviewOptions } from "../src/index.ts";
+import { IrisPdfError } from "../src/report.ts";
 import { cost } from "../src/review/review.ts";
 import { pageOutline, headingsBefore } from "../src/review/outline.ts";
 import * as mupdf from "mupdf";
@@ -53,9 +54,20 @@ test("a model that answers in text is asked once more to call the tool", async (
   assert.deepEqual(r.usage, { inputTokens: 150, outputTokens: 15 });
 });
 
-test("no findings after the second ask fails the review", async () => {
-  const { send } = stub({ content: [], stop_reason: "end_turn" });
-  await assert.rejects(review(tagFixture("text-simple").out, { send }), { code: "review_failed" });
+test("no findings after the second ask fails that page, and the others are kept", async () => {
+  const { send } = stub(reply([]), { content: [], stop_reason: "end_turn", usage: { input_tokens: 7, output_tokens: 1 } });
+  const r = await review(tagFixture("mixed").out, { send, concurrency: 1 });
+  assert.deepEqual(r.pages[0], { page: 1, findings: [] });
+  assert.equal(r.pages[1].page, 2);
+  assert.match(r.pages[1].error!, /did not report findings for page 2 \(stop reason: end_turn\)/);
+  assert.deepEqual(r.usage, { inputTokens: 114, outputTokens: 12 });
+});
+
+test("a provider error fails that page; missing credentials fail the run", async () => {
+  const failing = (e: Error) => ({ send: async () => { throw e; } });
+  const r = await review(tagFixture("text-simple").out, failing(new IrisPdfError("review_failed", "Bedrock: throttled")));
+  assert.deepEqual(r.pages, [{ page: 1, findings: [], error: "Bedrock: throttled" }]);
+  await assert.rejects(review(tagFixture("text-simple").out, failing(new IrisPdfError("no_credentials", "x"))), { code: "no_credentials" });
 });
 
 test("an untagged PDF is refused", async () => {
@@ -115,9 +127,10 @@ test("a text answer is asked again without its tool calls, which would need a to
   assert.deepEqual(bodies[1].messages[1].content, [{ type: "text", text: "Checking." }]);
 });
 
-test("findings cut off at max_tokens fail the review", async () => {
+test("findings cut off at max_tokens fail the page, without a second ask", async () => {
   const { bodies, send } = stub({ ...reply([]), stop_reason: "max_tokens" });
-  await assert.rejects(review(tagFixture("text-simple").out, { send }), { code: "review_failed", message: /max_tokens/ });
+  const r = await review(tagFixture("text-simple").out, { send });
+  assert.match(r.pages[0].error!, /max_tokens/);
   assert.equal(bodies.length, 1);
 });
 
@@ -129,10 +142,31 @@ test("over 25 pages is refused before any model call", async () => {
   assert.equal(bodies.length, 0);
 });
 
-test("a structure tree with no text this tool can read is refused", async () => {
+test("a structure tree that points at no content is refused; one with only a figure is reviewed", async () => {
   const { doc } = tagFixture("text-simple");
   doc.getTrailer().get("Root", "StructTreeRoot").put("K", doc.newArray());
   await assert.rejects(review(doc.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "no_readable_structure" });
+  const figure = tag(readFixture("blank-page.pdf"), { pages: [{ sourcePage: 1, html: '<img alt="A bar chart of fees">' }], lang: "en" });
+  const { bodies, send } = stub(reply([]));
+  await review(figure, { send });
+  assert.match(bodies[0].messages[0].content[1].text, /^Figure Alt="A bar chart of fees"$/m);
+});
+
+test("the outline says where a link goes: a URI, this document, another action or nowhere", () => {
+  const { doc } = tagFixture("structure");
+  const root = structTree(doc);
+  const link = (s: string | null) => {
+    const annot = doc.newDictionary(), act = doc.newDictionary();
+    annot.put("Subtype", doc.newName("Link"));
+    if (s === "Dest") annot.put("Dest", doc.newArray());
+    else if (s) { act.put("S", doc.newName(s)); annot.put("A", act); }
+    root.kids[0].objr = [annot];
+    return pageOutline(root, 0).split("\n")[0];
+  };
+  assert.equal(link("GoTo"), 'H1 href=(in this document) "Permit types"');
+  assert.equal(link("Dest"), 'H1 href=(in this document) "Permit types"');
+  assert.equal(link("Launch"), 'H1 action=Launch "Permit types"');
+  assert.equal(link(null), 'H1 href=(none) "Permit types"');
 });
 
 test("a root /K array is read", () => {
