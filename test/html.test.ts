@@ -46,6 +46,10 @@ test("links and footnotes", () => {
   assert.equal((top.kids[1] as Node).id, "p1-n1");
   // A heading that is a link target stays a heading.
   assert.equal(kids('<p><a href="#fees">Fees</a></p><h2 id="fees">Fees</h2>'), 'P(Reference(Link("Fees"))), H2("Fees")');
+  // A footnote list item keeps LI > LBody; the Note is inside.
+  const list = build('<p>x<a href="#fn-1">1</a></p><ol><li id="fn-1">Source.</li></ol>').top.kids[1] as Node;
+  assert.equal(shape(list), 'L(LI(Lbl("1."), LBody(Note("Source."))))');
+  assert.equal(((((list.kids[0] as Node).kids[1] as Node).kids[0]) as Node).id, "p1-fn-1");
 });
 
 test("form controls take their label from for=, an enclosing label, or aria-label", () => {

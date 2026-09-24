@@ -15,6 +15,35 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject): 
   return [doc.addStream("/Artifact BMC q\n", {}), ...streams, doc.addStream("\nQ EMC\n", {})];
 }
 
+// Pages (1-based) whose own drawing has marked-content ids, left from a tag
+// tree since removed. Inside our artifact they are tagged content in an
+// artifact, which PDF/UA-1 forbids (7.1). Form XObjects are searched to a depth of 32.
+export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < doc.countPages(); i++) {
+    const page = doc.findPage(i), seen = new Set<number>();
+    const marked = (s: mupdf.PDFObject) => /\/MCID\b/.test(s.readStream().asString());
+    const forms = (res: mupdf.PDFObject, depth: number): boolean => {
+      let found = false;
+      if (depth > 32 || !res.isDictionary()) return false;
+      res.get("XObject").forEach((x) => {
+        if (found || !x.isStream() || x.get("Subtype").asName() !== "Form") return;
+        if (x.isIndirect()) {
+          if (seen.has(x.asIndirect())) return;
+          seen.add(x.asIndirect());
+        }
+        found = marked(x) || forms(x.get("Resources"), depth + 1);
+      });
+      return found;
+    };
+    const contents = page.get("Contents"), streams: mupdf.PDFObject[] = [];
+    if (contents.isArray()) contents.forEach((s) => { if (s.isStream()) streams.push(s); });
+    else if (contents.isStream()) streams.push(contents);
+    if (streams.some(marked) || forms(page.getInheritable("Resources"), 0)) out.push(i + 1);
+  }
+  return out;
+}
+
 // True if the page's own content paints nothing (annotations aside).
 export function drawsNothing(page: mupdf.PDFPage): boolean {
   let drew = false;
@@ -54,10 +83,14 @@ export class Overlay {
   // One word, stretched to fill its box. A space after it, if the HTML had
   // one, lets extractors see the word break.
   word(text: string, box: Box, baseline: number, size: number, space = true) {
-    const chars = [...text], glyphs = chars.map((c) => this.fonts.glyph(c));
-    this.text += chars.filter((_, k) => glyphs[k].gid).join("") + " "; // a missing glyph is reported, not checked
-    const natural = glyphs.reduce((w, g) => w + g.advance, 0) * size;
-    const h = natural > 0 ? Math.min(10, Math.max(0.1, (box[2] - box[0]) / natural)) : 1;
+    // A character no font has is reported, and left out: a .notdef glyph has no Unicode (PDF/UA-1 7.21.7).
+    const chars = [...text].filter((c) => this.fonts.glyph(c).gid), glyphs = chars.map((c) => this.fonts.glyph(c));
+    if (!chars.length) return;
+    this.text += chars.join("") + " ";
+    const unit = glyphs.reduce((w, g) => w + g.advance, 0), wide = box[2] - box[0];
+    // Squeezed to under half its width, extractors merge a word's repeated letters. Shrink the text instead.
+    if (unit > 0 && wide / (unit * size) < 0.5) size = Math.max(0.5, (2 * wide) / unit);
+    const h = unit > 0 ? Math.min(10, Math.max(0.1, wide / (unit * size))) : 1;
     const m = mupdf.Matrix.concat([h, 0, 0, -1, box[0], baseline], this.toUser);
     // Consecutive glyphs from the same font share one Tj.
     const runs: { font: number; hex: string }[] = [];

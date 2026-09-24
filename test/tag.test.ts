@@ -8,6 +8,8 @@ import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { comparePixels } from "../src/verify/pixels.ts";
 import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
+import { Overlay, pagesWithMcids } from "../src/pdf/content.ts";
+import { FontSet, unembeddedFonts } from "../src/pdf/fonts.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture } from "./helpers.ts";
 
 const TEXT = ["text-simple", "text-embedded", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
@@ -167,11 +169,52 @@ test("a page with too many words is refused", () => {
   assert.throws(() => tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html }] }), { code: "too_many_words", exit: 1 });
 });
 
-test("a character no font has is reported, not a verification failure", () => {
+test("HTML words not on the page are laid out one after another, so none is lost to extraction", () => {
+  // Squeezed into one spot, the repeated letters of "viii" and "Illustrations" merge when extracted.
+  const pages = { lang: "en", title: "T", pages: [{ sourcePage: 1, html: pagesOf("text-simple").pages[0].html.replace("Permit", "Permit v Tables viii Illustrations") }] };
   const report = newReport();
-  tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html: "<h1>Parking Permit 🦄</h1>" }] }, {}, report);
+  const doc = new mupdf.PDFDocument(tag(readFixture("text-simple.pdf"), pages, {}, report));
+  assert.equal(report.pages[0].addedFromHtml, 4);
+  assert.match(readingOrder(structTree(doc)), /^Parking Permit v Tables viii Illustrations Residents/);
+  assert.match(doc.loadPage(0).toStructuredText("").asText(), /v\s*Tables\s*viii\s*Illustrations/);
+
+  // Too many to fit on the line: they wrap, rather than run off the page.
+  const long = { ...pages, pages: [{ sourcePage: 1, html: pages.pages[0].html.replace("Permit", "Permit" + " Tables…………………".repeat(40)) }] };
+  const wrapped = newReport();
+  tag(readFixture("text-simple.pdf"), long, {}, wrapped);
+  assert.equal(wrapped.verification.textPreserved, true);
+});
+
+test("a word in a very narrow box keeps its repeated letters", () => {
+  // OCR of sideways text gives boxes like this one: tall, and a tenth as wide as the word.
+  const doc = new mupdf.PDFDocument();
+  const fonts = new FontSet(), overlay = new Overlay(fonts, mupdf.Matrix.identity);
+  overlay.word("Juasaffig", [100, 100, 116, 140], 140, 37);
+  const ops = overlay.toString();
+  doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, { Font: fonts.embed(doc, [ops]) }, ops));
+  assert.equal(doc.loadPage(0).toStructuredText("").asText().trim(), "Juasaffig");
+});
+
+test("a character no font has is reported and left out, not a verification failure", () => {
+  const report = newReport();
+  tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html: "<h1>Parking Permit 🦄 x🦄</h1>" }] }, {}, report);
   assert.equal(report.warnings.find((w) => w.code === "missing_glyph")?.detail, "🦄");
   assert.equal(report.verification.textPreserved, true);
+  const overlay = new Overlay(new FontSet(), mupdf.Matrix.identity);
+  overlay.word("🦄", [0, 0, 10, 10], 10, 10);
+  assert.doesNotMatch(overlay.toString(), /Tj/, "no .notdef glyph");
+  overlay.word("x🦄", [0, 0, 10, 10], 10, 10);
+  assert.match(overlay.toString(), /<[0-9a-f]{4}[0-9a-f]{4}> Tj/, "x and a space");
+});
+
+test("marked content left from an old tag tree is reported and stops the PDF/UA claim", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const page = doc.findPage(0);
+  page.put("Contents", doc.addStream("/P <</MCID 0>> BDC " + page.get("Contents").readStream().asString() + " EMC", {}));
+  const report = newReport();
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
+  assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 1 /);
+  assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
 
 test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {
@@ -300,4 +343,13 @@ test("with no title there is no PDF/UA claim, no empty title, and --strict fails
   const packet = xmp('<x:xmpmeta><rdf:RDF><rdf:Description><dc:title>Old</dc:title><pdfuaid:part>1</pdfuaid:part></rdf:Description></rdf:RDF></x:xmpmeta>', "", false);
   assert.doesNotMatch(packet, /pdfuaid:part>|<dc:title><rdf:Alt>/);
   assert.match(packet, /Old/, "an old title stays when there is no new one");
+});
+
+test("deeply nested form XObjects do not overflow the stack", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  let inner = doc.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] });
+  for (let i = 0; i < 20000; i++) inner = doc.addStream("/X Do", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1], Resources: { XObject: { X: inner } } });
+  doc.findPage(0).get("Resources").put("XObject", { Deep: inner });
+  assert.deepEqual(unembeddedFonts(doc), []);
+  assert.deepEqual(pagesWithMcids(doc), [], "past the depth limit, not searched");
 });

@@ -1,8 +1,8 @@
 // tag(): the original PDF plus Iris's HTML -> the same PDF, tagged, with any
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
-import { openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { artifactStreams, drawsNothing, Overlay } from "./pdf/content.ts";
+import { inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
+import { artifactStreams, drawsNothing, Overlay, pagesWithMcids } from "./pdf/content.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
@@ -68,6 +68,8 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
   const unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
+  const marked = pagesWithMcids(doc);
+  if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
   const fonts = new FontSet();
   const written: { page: mupdf.PDFObject; overlay: string }[] = [];
@@ -111,7 +113,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   if (fonts.missing.size) warn({ code: "missing_glyph", detail: [...fonts.missing].join("") });
   struct.finish();
   report.structure = { elements: struct.elements, byType: struct.byType };
-  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length);
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length);
 
   const out = save(doc);
   report.sizeIncreaseBytes = out.length - pdf.length;
@@ -193,7 +195,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     blockOf.set(t, ordered[k].block);
   });
   const bounds = page.getBounds();
-  fillPositions(ordered.map((o) => o.word), { box: [bounds[0] + 10, bounds[1] + 10, bounds[0] + 10, bounds[1] + 20], baseline: bounds[1] + 20, size: 10 });
+  fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s));
 
   // Page words Iris left out: furniture, or lost content reported and kept as a P.
   const lost = new Map<number, Run[]>(); // after which top-level block
@@ -257,15 +259,27 @@ type Emitter = PageCtx & { pageObj: mupdf.PDFObject; overlay: Overlay; links: Li
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const placed = (w: PageWord): Placed => ({ box: w.box, baseline: w.baseline, size: w.size });
 
-// An HTML word with no page word sits just after the word before it, or
-// before the first placed word, or at the page's top left.
-function fillPositions(words: Word[], fallback: Placed) {
+// An HTML word with no page word follows the word before it, at its natural
+// width, wrapping at the page edge: extractors drop text off the page, and
+// merge repeated letters piled into one spot. With no word before it, it
+// starts at the first placed word, or the page's top left.
+function fillPositions(words: Word[], page: Box, width: (text: string) => number) {
+  const fallback: Placed = { box: [page[0] + 10, page[1] + 10, page[0] + 10, page[1] + 20], baseline: page[1] + 20, size: 10 };
   const first = words.find((w) => w.at)?.at ?? fallback;
-  let prev: Placed | null = null;
+  let prev: Word | null = null;
   for (const w of words) {
-    if (w.at) prev = w.at;
-    else if (prev) w.at = { ...prev, box: [prev.box[2], prev.box[1], prev.box[2], prev.box[3]] };
-    else w.at = { ...first, box: [first.box[0], first.box[1], first.box[0], first.box[3]] };
+    if (!w.at) {
+      const from = prev?.at ?? first, size = from.size, line = size * 1.2;
+      const wide = Math.min(width(w.text) * size, page[2] - page[0] - 2);
+      let x = prev ? from.box[2] + (prev.space ?? true ? width(" ") * size : 0) : first.box[0];
+      let dy = 0;
+      if (x + wide > page[2] - 1) {
+        x = page[0] + 1;
+        dy = from.box[3] + line > page[3] ? page[1] + line - from.box[3] : line; // off the bottom: back to the top
+      }
+      w.at = { size, baseline: from.baseline + dy, box: [x, from.box[1] + dy, x + wide, from.box[3] + dy] };
+    }
+    prev = w;
   }
 }
 
@@ -338,13 +352,15 @@ function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
 }
 
 // /TU, the name a screen reader announces (PDF/UA-1 7.18.1). The HTML's label
-// wins; without one, keep the source's, else the button caption, else the field name.
+// wins; without one, keep the source's, else a push button's caption, else the
+// field name. (On a check box or radio button, /MK /CA is the check mark's glyph.)
 function nameField(w: Widget, label: string, doc: mupdf.PDFDocument) {
   const had = w.field.get("TU");
   if (!label && had.isString() && had.asString()) return;
+  const push = inherited(w.field, "FT")?.asName() === "Btn" && ((inherited(w.field, "Ff")?.asNumber() ?? 0) & (1 << 16)) !== 0;
   const caption = w.widget.getObject().get("MK", "CA");
-  const name = label || (caption.isString() && caption.asString()) || w.name.split(".").at(-1)!;
-  w.field.put("TU", doc.newString(name));
+  const name = label || (push && caption.isString() && caption.asString()) || w.name.split(".").at(-1);
+  if (name) w.field.put("TU", doc.newString(name));
 }
 
 // The value a flattened field shows, as text.

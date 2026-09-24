@@ -25,6 +25,11 @@ export class FontSet {
     return { font: 0, gid: 0, advance: 0.5 };
   }
 
+  // Advance of a string at size 1.
+  width(text: string) {
+    return [...text].reduce((w, c) => w + this.glyph(c).advance, 0);
+  }
+
   resourceName(font: number) {
     return `IrisF${font}`;
   }
@@ -50,7 +55,7 @@ export class FontSet {
 }
 
 // Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).
-// Looks in every page, form XObject and annotation appearance.
+// Looks in every page, form XObject and annotation appearance, to a nesting depth of 32.
 export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
   const out = new Set<string>(), seen = new Set<number>();
   const once = (o: mupdf.PDFObject) => {
@@ -59,26 +64,26 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     seen.add(o.asIndirect());
     return true;
   };
-  const resources = (res: mupdf.PDFObject) => {
-    if (!res.isDictionary() || !once(res)) return;
-    res.get("Font").forEach((f) => { if (f.isDictionary() && once(f)) font(f); });
-    res.get("XObject").forEach((x) => { if (x.isStream() && x.get("Subtype").asName() === "Form" && once(x)) resources(x.get("Resources")); });
+  const resources = (res: mupdf.PDFObject, depth: number) => {
+    if (depth > 32 || !res.isDictionary() || !once(res)) return;
+    res.get("Font").forEach((f) => { if (f.isDictionary() && once(f)) font(f, depth); });
+    res.get("XObject").forEach((x) => { if (x.isStream() && x.get("Subtype").asName() === "Form" && once(x)) resources(x.get("Resources"), depth + 1); });
   };
-  const font = (f: mupdf.PDFObject) => {
+  const font = (f: mupdf.PDFObject, depth: number) => {
     const type = f.get("Subtype").asName();
-    if (type === "Type3") return resources(f.get("Resources"));
+    if (type === "Type3") return resources(f.get("Resources"), depth + 1);
     const kids = f.get("DescendantFonts");
     const base = type !== "Type0" ? f : kids.isArray() ? kids.get(0) : kids;
     const d = base.isDictionary() ? base.get("FontDescriptor") : base;
     if (!d.isDictionary() || !["FontFile", "FontFile2", "FontFile3"].some((k) => d.get(k).isStream())) out.add(f.get("BaseFont").asName() || "(unnamed)");
   };
   const appearance = (ap: mupdf.PDFObject) => {
-    if (ap.isStream()) return resources(ap.get("Resources"));
+    if (ap.isStream()) return resources(ap.get("Resources"), 0);
     if (ap.isDictionary()) ap.forEach(appearance);
   };
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i);
-    resources(page.getInheritable("Resources"));
+    resources(page.getInheritable("Resources"), 0);
     page.get("Annots").forEach((a) => { if (a.isDictionary()) appearance(a.get("AP")); });
   }
   return [...out];

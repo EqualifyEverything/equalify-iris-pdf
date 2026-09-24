@@ -1,5 +1,5 @@
 // veraPDF over the corpus: every output that claims PDF/UA-1 must pass it,
-// and the fixtures that can conform must claim it. Skips without veraPDF, except in CI.
+// and the fixtures that can conform must claim it. Skips without veraPDF, unless IRIS_REQUIRE_VERAPDF is set.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -10,7 +10,7 @@ import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { checkPdfUa } from "../src/verify/pdfua.ts";
 import { tagFixture } from "./helpers.ts";
 
-const noVera = !process.env.CI && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
+const noVera = !process.env.IRIS_REQUIRE_VERAPDF && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
 const noOcr = !tesseractInstalled() && "Tesseract is not installed";
 const dir = mkdtempSync(join(tmpdir(), "iris-pdf-ua-"));
 

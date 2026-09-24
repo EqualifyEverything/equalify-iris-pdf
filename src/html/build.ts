@@ -159,17 +159,23 @@ function listItem(e: Elem, parent: Node, label: string, ctx: Ctx) {
   const li: Node = { type: "LI", kids: [] };
   parent.kids.push(li);
   if (label) li.kids.push({ type: "Lbl", kids: [{ words: [word(label)] }] });
-  const body: Node = { type: "LBody", kids: [] };
+  let body: Node = { type: "LBody", kids: [] };
   li.kids.push(body);
-  if (e.attrs.id && ctx.notes.has(e.attrs.id)) target(body, e.attrs.id, ctx);
+  // A footnote list item: LI may hold only Lbl and LBody, so the Note goes inside the LBody.
+  if (e.attrs.id && ctx.notes.has(e.attrs.id)) {
+    const note: Node = { type: "P", kids: [] };
+    body.kids.push(note);
+    target(note, e.attrs.id, ctx);
+    body = note;
+  }
   for (const k of e.kids) build(k, body, ctx);
 }
 
-// The target of an internal link gets an /ID. A paragraph or list body is a
-// footnote, so it becomes a Note; anything else (a heading, say) keeps its type.
+// The target of an internal link gets an /ID. A paragraph is a footnote, so
+// it becomes a Note; anything else (a heading, say) keeps its type.
 function target(n: Node, id: string, ctx: Ctx) {
   n.id = `${ctx.prefix}${id}`;
-  if (n.type === "P" || n.type === "LBody") n.type = "Note";
+  if (n.type === "P") n.type = "Note";
 }
 
 const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colgroup: "Column" })[s.toLowerCase()] ?? "Both";
