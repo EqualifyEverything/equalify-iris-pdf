@@ -12,7 +12,7 @@ import { Overlay, pagesWithMcids } from "../src/pdf/content.ts";
 import { FontSet, unembeddedFonts } from "../src/pdf/fonts.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture } from "./helpers.ts";
 
-const TEXT = ["text-simple", "text-embedded", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
+const TEXT = ["text-simple", "text-embedded", "structure", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
 const SCANS = ["scan-300dpi", "scan-skewed", "mixed"];
 const noOcr = { skip: !tesseractInstalled() && "Tesseract is not installed" };
 
@@ -249,6 +249,9 @@ test("marked content left from an old tag tree is reported and stops the PDF/UA 
   assert.deepEqual(drawing("/Span <</MCID 0 /ActualText (f\\)i)>> BDC EMC"), [1], "a string after the id");
   assert.deepEqual(drawing("/P <</MCID 0", ">> BDC EMC"), [1], "split across streams");
   assert.deepEqual(drawing("BI /W 1 /H 1 ID ( EI /P <</MCID 0>> BDC EMC"), [1], "an unclosed string hides nothing");
+  const image = (b: string) => `q BI /W 2 /H 1 /CS /G /BPC 8 ID ${b} EI Q`;
+  assert.deepEqual(drawing(`${image("a(")} /P <</MCID 0>> BDC EMC ${image(")b")}`), [1], "image bytes are not strings");
+  assert.deepEqual(drawing("% a ( comment\n/P <</MCID 0>> BDC EMC % and )\n"), [1], "nor are comments");
   // A tiling pattern draws too.
   const tiled = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   tiled.findPage(0).get("Resources").put("Pattern", { P0: tiled.addStream("/P <</MCID 0>> BDC EMC", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 1, 1], XStep: 1, YStep: 1 }) });

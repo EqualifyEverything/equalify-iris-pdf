@@ -55,10 +55,12 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
   return out;
 }
 
-// A content stream with its string literals removed, so their text is not read as operators.
-// An unclosed string (binary inline-image data, say) leaves the stream as it was.
+// A content stream with its string literals, comments and inline-image data
+// removed, so their bytes are not read as operators. An unclosed string leaves
+// the stream as it was.
 export function withoutStrings(s: string): string {
   let out = "", depth = 0;
+  const space = (c: string | undefined) => c === undefined || /[\0\t\n\f\r ]/.test(c);
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (depth) {
@@ -66,7 +68,13 @@ export function withoutStrings(s: string): string {
       else if (c === "(") depth++;
       else if (c === ")") depth--;
     } else if (c === "(") depth = 1;
-    else out += c;
+    else if (c === "%") while (i + 1 < s.length && !/[\n\r]/.test(s[i + 1])) i++;
+    else if (c === "I" && s[i + 1] === "D" && space(s[i - 1]) && space(s[i + 2])) {
+      const end = s.slice(i + 3).search(/[\0\t\n\f\r ]EI(?![^\0\t\n\f\r ])/);
+      if (end < 0) return s;
+      out += " ";
+      i += 3 + end + 2;
+    } else out += c;
   }
   return depth ? s : out;
 }
