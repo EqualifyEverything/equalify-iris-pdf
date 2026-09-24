@@ -72,3 +72,10 @@ test("fields prints one line per field, or JSON", () => {
   assert.equal(json.length, 7);
   assert.equal(run("fields", "--pdf", fixture("encrypted.pdf")).code, 1);
 });
+
+test("review refuses a bad provider and an untagged PDF with exit 3, before any model call", () => {
+  assert.equal(run("review", "--pdf", fixture("text-simple.pdf"), "--provider", "openai").code, 3);
+  const r = run("review", "--pdf", fixture("text-simple.pdf"), "--provider", "bedrock");
+  assert.equal(r.code, 3);
+  assert.match(r.err, /^iris-pdf: not_tagged: /);
+});

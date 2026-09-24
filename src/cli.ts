@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// The iris-pdf command. Exit codes: 0 done, 1 refused, 2 verification
-// failed, 3 bad arguments or unreadable input.
+// The iris-pdf command. Exit codes: 0 done, 1 refused or the review
+// failed, 2 verification failed, 3 bad arguments or unreadable input.
 import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { tag, fields, newReport, IrisPdfError, EXIT, VERSION, type TagOptions } from "./index.ts";
 import { checkPdfUa } from "./verify/pdfua.ts";
+import { review, type Provider } from "./review/review.ts";
 
 const USAGE = `iris-pdf ${VERSION}
 
@@ -13,14 +14,15 @@ iris-pdf tag --pdf <in.pdf> --pages <pages.json> --out <out.pdf>
              [--ocr auto|off|required] [--verify pixels,text|off] [--verify-dpi 150]
              [--flatten] [--password <pw>] [--allow-signed] [--partial] [--strict]
 iris-pdf fields --pdf <in.pdf> [--json] [--password <pw>]
-iris-pdf check --pdf <in.pdf>`;
+iris-pdf check --pdf <in.pdf>
+iris-pdf review --pdf <tagged.pdf> [--report <review.json>] [--provider anthropic|bedrock] [--model <id>] [--password <pw>]`;
 
 const OPTIONS = {
   pdf: { type: "string" }, pages: { type: "string" }, values: { type: "string" }, out: { type: "string" },
   report: { type: "string" }, lang: { type: "string" }, title: { type: "string" }, ocr: { type: "string" },
   verify: { type: "string" }, "verify-dpi": { type: "string" }, flatten: { type: "boolean" },
   password: { type: "string" }, "allow-signed": { type: "boolean" }, partial: { type: "boolean" },
-  strict: { type: "boolean" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" },
+  strict: { type: "boolean" }, provider: { type: "string" }, model: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" },
 } as const;
 
 function badArgs(message: string): never {
@@ -44,7 +46,7 @@ function readPdf(path: string | undefined): Uint8Array {
   }
 }
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv;
   let args;
   try {
@@ -68,6 +70,17 @@ function main(argv: string[]): number {
     const result = checkPdfUa(args.pdf ?? badArgs("--pdf is required."));
     console.log(result.message);
     return result.passed === false ? EXIT.verification : 0;
+  }
+
+  if (command === "review") {
+    if (args.provider && args.provider !== "anthropic" && args.provider !== "bedrock") badArgs("--provider is anthropic or bedrock.");
+    const result = await review(readPdf(args.pdf), { provider: args.provider as Provider, model: args.model, password: args.password });
+    for (const { page, findings } of result.pages) for (const f of findings) console.log(`page ${page}\t${f.severity}\t${f.kind}\t${f.element}\t${f.detail}`);
+    const n = result.pages.reduce((n, p) => n + p.findings.length, 0);
+    const usd = result.estimatedCostUsd === null ? "" : `, about US$${result.estimatedCostUsd.toFixed(4)}`;
+    console.error(`${n} finding${n === 1 ? "" : "s"} from ${result.model} (${result.usage.inputTokens} input, ${result.usage.outputTokens} output tokens${usd}).`);
+    if (args.report) writeFileSync(args.report, JSON.stringify(result, null, 2) + "\n");
+    return 0;
   }
 
   if (command !== "tag") badArgs(`Unknown command "${command}".\n${USAGE}`);
@@ -101,7 +114,7 @@ function main(argv: string[]): number {
 }
 
 try {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 } catch (e) {
   if (!(e instanceof IrisPdfError)) throw e;
   console.error(`iris-pdf: ${e.code}: ${e.message}`);
