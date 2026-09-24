@@ -61,7 +61,7 @@ On 2026-09-24, through Bedrock `us.` profiles, with the prompt in `src/review/re
   - Nova Premier has reached end of life.
   - Fable 5.1 was unavailable on Bedrock to this account.
 - **The corpus is small**, and the leaders caught every defect in it. Widen it before choosing between them. The corpus and harness are not in this repo yet.
-- **Tokens.** Sonnet 5 uses about 4,000 input and 1,000 output tokens a page; GPT-5.6 luna, about 2,000 and 1,000.
+- **Tokens.** Averaged over the corpus, Sonnet 5 uses about 3,800 input and 1,000 output tokens a page; GPT-5.6 luna, about 1,800 and 500.
 
 The review sends each page's image and its text to the model provider, so do not use it on documents that must not leave your machine.
 

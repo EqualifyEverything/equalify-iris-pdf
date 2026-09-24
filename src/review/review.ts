@@ -120,10 +120,12 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
         let res = await ask(req);
         // With tool_choice auto a model can answer in text instead; ask once more.
         // Only its text is kept: a tool_use turn would need a tool_result.
+        // Roles must alternate (Converse enforces it), so with no text the nudge joins the first turn.
         if (!reported(res) && (res as Reply).stop_reason !== "max_tokens") {
           const said = ((res as Reply).content ?? []).filter((c) => c.type === "text" && c.text);
-          const messages = [...(req.messages as unknown[]), ...(said.length ? [{ role: "assistant", content: said }] : []),
-            { role: "user", content: `Answer by calling ${TOOL}.` }];
+          const nudge = `Answer by calling ${TOOL}.`, [first] = req.messages as { role: string; content: unknown[] }[];
+          const messages = said.length ? [first, { role: "assistant", content: said }, { role: "user", content: nudge }]
+            : [{ ...first, content: [...first.content, { type: "text", text: nudge }] }];
           res = await ask({ ...req, messages });
         }
         report.pages[i] = { page: i + 1, findings: findings(res, i + 1) };
@@ -152,7 +154,7 @@ function image(page: mupdf.PDFPage): string {
   return Buffer.from(page.toPixmap(mupdf.Matrix.scale(s, s), mupdf.ColorSpace.DeviceRGB, false).asPNG()).toString("base64");
 }
 
-// tool_choice stays auto: Opus 5.5 rejects a forced tool.
+// tool_choice stays auto: some models, Opus 5.5 among them, reject a forced tool.
 function request(model: string, png: string, reader: string): Record<string, unknown> {
   return {
     model, max_tokens: 4096, system: SYSTEM, tools: TOOLS,

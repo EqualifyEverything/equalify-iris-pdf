@@ -5,6 +5,9 @@ import { IrisPdfError } from "../src/report.ts";
 import { cost, plain, toConverse, fromConverse } from "../src/review/review.ts";
 import { pageOutline, headingsBefore } from "../src/review/outline.ts";
 import * as mupdf from "mupdf";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { tagFixture, structTree, readFixture, mcidText } from "./helpers.ts";
 
 type Body = { model: string; tools: { name: string }[]; tool_choice?: unknown; messages: { role: string; content: any }[] };
@@ -31,7 +34,7 @@ test("sends each page's image and screen-reader view, and reads back the finding
   assert.match(text.text, /^H1 "Permit types"$/m);
   assert.match(text.text, /^  Figure Alt="Zones north and south of the river"$/m);
   assert.deepEqual(bodies[0].tools.map((t) => t.name), ["report_findings"]);
-  assert.equal(bodies[0].tool_choice, undefined); // Opus 5.5 rejects a forced tool
+  assert.equal(bodies[0].tool_choice, undefined); // some models reject a forced tool
   assert.equal(r.model, "us.anthropic.claude-sonnet-5");
   assert.deepEqual(r.pages, [{ page: 1, findings: [finding] }]);
   assert.deepEqual(r.usage, { inputTokens: 100, outputTokens: 10 });
@@ -152,6 +155,37 @@ test("a text answer is asked again without its tool calls, which would need a to
   const { bodies, send } = stub(other, reply([]));
   await review(tagFixture("text-simple").out, { send });
   assert.deepEqual(bodies[1].messages[1].content, [{ type: "text", text: "Checking." }]);
+});
+
+test("a reply with no text is asked again in the same user turn, as roles must alternate", async () => {
+  const { bodies, send } = stub({ content: [], stop_reason: "end_turn" }, reply([]));
+  await review(tagFixture("text-simple").out, { send });
+  assert.equal(bodies[1].messages.length, 1);
+  assert.deepEqual(bodies[1].messages[0].content.map((c: { type: string }) => c.type), ["image", "text", "text"]);
+  assert.equal(bodies[1].messages[0].content[2].text, "Answer by calling report_findings.");
+});
+
+test("Bedrock runs aws bedrock-runtime converse with the request in a file, and reads the reply from stdout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "aws-stub-"));
+  const reply = { output: { message: { content: [{ toolUse: { name: "report_findings", input: { findings: [] } } }] } }, stopReason: "tool_use", usage: { inputTokens: 5, outputTokens: 2 } };
+  writeFileSync(join(dir, "reply.json"), JSON.stringify(reply));
+  writeFileSync(join(dir, "aws"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${dir}/argv"\ncp "\${4#file://}" "${dir}/in.json"\ncat "${dir}/reply.json"\n`, { mode: 0o755 });
+  const path = process.env.PATH;
+  process.env.PATH = `${dir}:${path}`;
+  try {
+    const r = await review(tagFixture("text-simple").out, { provider: "bedrock" });
+    assert.deepEqual(r.pages, [{ page: 1, findings: [] }]);
+    assert.deepEqual(r.usage, { inputTokens: 5, outputTokens: 2 });
+  } finally {
+    process.env.PATH = path;
+  }
+  const argv = readFileSync(join(dir, "argv"), "utf8").trim().split("\n");
+  assert.deepEqual([...argv.slice(0, 3), ...argv.slice(4)], ["bedrock-runtime", "converse", "--cli-input-json", "--output", "json"]);
+  assert.match(argv[3], /^file:\/\/.*in\.json$/);
+  const input = JSON.parse(readFileSync(join(dir, "in.json"), "utf8"));
+  assert.equal(input.modelId, "us.anthropic.claude-sonnet-5");
+  assert.equal(Buffer.from(input.messages[0].content[0].image.source.bytes, "base64").subarray(1, 4).toString(), "PNG");
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("findings cut off at max_tokens fail the page, without a second ask", async () => {
