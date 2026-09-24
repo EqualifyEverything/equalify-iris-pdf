@@ -96,6 +96,11 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   const ap = form.addStream("BT /Helv 10 Tf (x) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 20] });
   form.findPage(0).put("Annots", [form.addObject({ Type: "Annot", Subtype: "Widget", Rect: [0, 0, 50, 20], AP: { N: ap } })]);
   assert.deepEqual(unembeddedFonts(form), ["Helvetica"]);
+  // So can a tiling pattern.
+  const tiled = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const courier = tiled.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Courier" });
+  tiled.findPage(0).get("Resources").put("Pattern", { P0: tiled.addStream("BT /C 8 Tf (Paid) Tj ET", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 40, 10], XStep: 40, YStep: 10, Resources: { Font: { C: courier } } }) });
+  assert.deepEqual(unembeddedFonts(tiled), ["Courier"]);
 });
 
 test("links: the Link element owns its annotation, which gets the link text", () => {
@@ -230,6 +235,12 @@ test("marked content left from an old tag tree is reported and stops the PDF/UA 
   const bad = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   bad.findPage(0).get("Resources").put("XObject", { Bad: bad.addRawStream("x", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1], Filter: "FlateDecode", DecodeParms: { Predictor: 2, BitsPerComponent: 7 } }) });
   assert.deepEqual(pagesWithMcids(bad), [1]);
+  // The same letters in a string are text, not marked content; a named property list is.
+  const text = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  text.findPage(0).put("Contents", text.addStream("BT /F1 9 Tf 20 150 Td (Each BDC carries an /MCID entry.) Tj ET", {}));
+  assert.deepEqual(pagesWithMcids(text), []);
+  text.findPage(0).get("Resources").put("Properties", { MC0: { MCID: 0 } });
+  assert.deepEqual(pagesWithMcids(text), [1]);
 });
 
 test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {

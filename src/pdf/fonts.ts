@@ -55,7 +55,7 @@ export class FontSet {
 }
 
 // Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).
-// Looks in every page, form XObject and annotation appearance. Nesting past a depth of 32 is not checked, and counts as unembedded.
+// Looks in every page, form XObject, tiling pattern and annotation appearance. Nesting past a depth of 32 is not checked, and counts as unembedded.
 export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
   const out = new Set<string>(), seen = new Set<number>(), dr = doc.getTrailer().get("Root", "AcroForm", "DR");
   const once = (o: mupdf.PDFObject) => {
@@ -69,6 +69,7 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     if (!res.isDictionary() || !once(res)) return;
     res.get("Font").forEach((f) => { if (f.isDictionary() && once(f)) font(f, depth); });
     res.get("XObject").forEach((x) => { if (x.isStream() && x.get("Subtype").asName() === "Form" && once(x)) resources(x.get("Resources"), depth + 1); });
+    res.get("Pattern").forEach((p) => { if (p.isStream() && once(p)) resources(p.get("Resources"), depth + 1); }); // tiling patterns draw too
   };
   const font = (f: mupdf.PDFObject, depth: number) => {
     const type = f.get("Subtype").asName();

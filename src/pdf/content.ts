@@ -25,7 +25,8 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
     const page = doc.findPage(i), seen = new Set<number>();
     const marked = (s: mupdf.PDFObject) => {
       try {
-        return /\/MCID\b/.test(s.readStream().asString());
+        // An inline property list ending in BDC; not the same letters in a string.
+        return /\/MCID\s+\d+[^()]*?>>\s*BDC/.test(s.readStream().asString());
       } catch {
         return true;
       }
@@ -34,6 +35,8 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
       let found = false;
       if (depth > 32) return true;
       if (!res.isDictionary()) return false;
+      // A named property list (/Tag /Name BDC) keeps its /MCID in the resources.
+      res.get("Properties").forEach((p) => { if (p.isDictionary() && !p.get("MCID").isNull()) found = true; });
       res.get("XObject").forEach((x) => {
         if (found || !x.isStream() || x.get("Subtype").asName() !== "Form") return;
         if (x.isIndirect()) {
