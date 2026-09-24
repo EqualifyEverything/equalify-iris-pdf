@@ -18,7 +18,7 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject): 
 // Pages (1-based) whose own drawing has marked-content ids, left from a tag
 // tree since removed. Inside our artifact they are tagged content in an
 // artifact, which PDF/UA-1 forbids (7.1). A stream that cannot be read, or
-// forms nested past a depth of 32, count as marked. Tiling patterns are searched too.
+// forms nested past a depth of 32, count as marked. Tiling patterns and annotation appearances are searched too.
 export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
   const out: number[] = [];
   for (let i = 0; i < doc.countPages(); i++) {
@@ -50,7 +50,15 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
     const contents = page.get("Contents"), streams: mupdf.PDFObject[] = [];
     if (contents.isArray()) contents.forEach((s) => { if (s.isStream()) streams.push(s); });
     else if (contents.isStream()) streams.push(contents);
-    if ((streams.length && marked(...streams)) || forms(page.getInheritable("Resources"), 0)) out.push(i + 1);
+    // Annotation appearances draw too.
+    let appearance = false;
+    const ap = (a: mupdf.PDFObject) => {
+      if (appearance) return;
+      if (a.isStream()) appearance = marked(a) || forms(a.get("Resources"), 1);
+      else if (a.isDictionary()) a.forEach(ap);
+    };
+    page.get("Annots").forEach((a) => { if (a.isDictionary()) ap(a.get("AP")); });
+    if ((streams.length && marked(...streams)) || forms(page.getInheritable("Resources"), 0) || appearance) out.push(i + 1);
   }
   return out;
 }

@@ -256,6 +256,11 @@ test("marked content left from an old tag tree is reported and stops the PDF/UA 
   const tiled = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   tiled.findPage(0).get("Resources").put("Pattern", { P0: tiled.addStream("/P <</MCID 0>> BDC EMC", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 1, 1], XStep: 1, YStep: 1 }) });
   assert.deepEqual(pagesWithMcids(tiled), [1]);
+  // So does an annotation appearance.
+  const annot = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const n = annot.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] });
+  annot.findPage(0).put("Annots", [annot.addObject({ Type: "Annot", Subtype: "Link", Rect: [0, 0, 1, 1], AP: { N: n } })]);
+  assert.deepEqual(pagesWithMcids(annot), [1]);
 });
 
 test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {
