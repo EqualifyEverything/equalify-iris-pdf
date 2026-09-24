@@ -206,3 +206,32 @@ test("/ToUnicode ranges over 256 codes, destinations over 512 bytes and invalid 
   page.get("Resources").put("Font", doc.newDictionary()).put("F1", font);
   assert.equal(mcidText(page).get(0), "AB\ufffd\ufffd");
 });
+
+test("malformed marked content reads as unknown text; a tree the walk cannot read is unreadable", async () => {
+  const doc = new mupdf.PDFDocument();
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <0041> Tj EMC");
+  const font = doc.newDictionary();
+  font.put("Subtype", doc.newName("Type1"));
+  page.get("Resources").put("Font", doc.newDictionary()).put("F1", font);
+  assert.equal(mcidText(page).get(0), "\ufffd"); // a font with no /ToUnicode
+  page.get("Resources").delete("Font");
+  assert.equal(mcidText(page).get(0), "\ufffd"); // no /Font resource
+  page.put("Contents", doc.newDictionary());
+  assert.deepEqual(mcidText(page), new Map()); // /Contents not a stream
+
+  const tagged = tagFixture("text-simple").doc;
+  const p = tagged.getTrailer().get("Root", "StructTreeRoot", "K", "K", 0);
+  p.delete("Pg");
+  p.put("K", 0);
+  assert.equal(structTree(tagged).kids[0].text, ""); // no /Pg
+  const objr = tagged.newDictionary();
+  objr.put("Type", tagged.newName("OBJR"));
+  objr.put("Pg", tagged.findPage(0));
+  p.put("K", objr); // an OBJR with no /Obj: the walk reads it, the outline cannot
+  const r = await review(tagged.saveToBuffer("").asUint8Array(), stub(reply([])));
+  assert.match(r.pages[0].error!, /./);
+  const kids = tagged.newArray();
+  kids.push(tagged.newNull());
+  p.put("K", kids);
+  await assert.rejects(review(tagged.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "unreadable" });
+});

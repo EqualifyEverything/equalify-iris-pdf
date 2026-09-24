@@ -11,6 +11,7 @@ const MAX_DEPTH = 64;
 // invalid code points are skipped.
 function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   const map = new Map<number, string>();
+  if (!font.isDictionary() || !font.get("ToUnicode").isStream()) return map;
   const cmap = font.get("ToUnicode").readStream().asString();
   const hex = (h: string) => parseInt(h, 16);
   const valid = (u: number) => u <= 0x10ffff && (u < 0xd800 || u > 0xdfff);
@@ -35,13 +36,14 @@ export function mcidText(page: mupdf.PDFObject): Map<number, string> {
   const out = new Map<number, string>();
   const contents = page.get("Contents");
   const streams: string[] = [];
-  if (contents.isArray()) contents.forEach((s) => { streams.push(s.readStream().asString()); });
-  else if (!contents.isNull()) streams.push(contents.readStream().asString());
+  for (const s of contents.isArray() ? Array.from({ length: contents.length }, (_, i) => contents.get(i)) : [contents]) {
+    if (s.isStream()) streams.push(s.readStream().asString());
+  }
   const all = streams.join("\n");
   for (const [, id, body] of all.matchAll(/<<\/MCID (\d+)>> BDC([\s\S]*?)EMC/g)) {
     let text = "";
     for (const [, font, hex] of body.matchAll(/\/(\w+) [\d.]+ Tf <([0-9a-f]*)>/g)) {
-      if (!maps.has(font)) maps.set(font, toUnicode(fonts.get(font)));
+      if (!maps.has(font)) maps.set(font, toUnicode(fonts.isDictionary() ? fonts.get(font) : fonts));
       for (const g of hex.match(/.{4}/g) ?? []) text += maps.get(font)!.get(parseInt(g, 16)) ?? "�";
     }
     out.set(Number(id), text.replace(/\s+/g, " ").trim());
@@ -64,6 +66,7 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
   for (let i = 0; i < doc.countPages(); i++) index.set(doc.findPage(i).asIndirect(), i);
   const cache = new Map<number, Map<number, string>>();
   const textOn = (pg: mupdf.PDFObject, mcid: number) => {
+    if (!pg.isIndirect()) return "";
     if (!cache.has(pg.asIndirect())) cache.set(pg.asIndirect(), mcidText(pg));
     return cache.get(pg.asIndirect())!.get(mcid) ?? "";
   };
@@ -74,7 +77,7 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
     const node: Elem = { type: e.get("S").asName(), text: "", kids: [], parts: [], dict: e, objr: [], pages: new Set() };
     const parts = node.parts;
     const on = (pg: mupdf.PDFObject) => {
-      const i = index.get(pg.asIndirect());
+      const i = pg.isIndirect() ? index.get(pg.asIndirect()) : undefined;
       if (i !== undefined) node.pages.add(i);
       return pg;
     };

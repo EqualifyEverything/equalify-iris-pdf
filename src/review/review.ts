@@ -87,7 +87,13 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
   if (doc.getTrailer().get("Root", "StructTreeRoot").isNull()) throw new IrisPdfError("not_tagged", "The PDF is not tagged. Run iris-pdf tag first.", EXIT.badInput);
   const pages = doc.countPages();
   if (pages > MAX_PAGES) throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
-  const root = structTree(doc);
+  // A malformed tree must not crash the command: whatever the walk trips on is unreadable input.
+  const root = (() => {
+    try { return structTree(doc); } catch (e) {
+      if (e instanceof IrisPdfError) throw e;
+      throw new IrisPdfError("unreadable", `The structure tree could not be read: ${(e as Error).message}`, EXIT.badInput);
+    }
+  })();
   const content = (e: Elem): boolean => e.pages.size > 0 || e.kids.some(content);
   if (!content(root)) throw new IrisPdfError("no_readable_structure", "The structure tree points at no content on any page. Only PDFs tagged by iris-pdf can be reviewed.", EXIT.badInput);
   const lang = doc.getTrailer().get("Root", "Lang"), title = doc.getMetaData("info:Title");
@@ -101,8 +107,8 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
   let next = 0;
   const worker = async () => {
     for (let i = next++; i < pages; i = next++) {
-      const req = build(i);
       try {
+        const req = build(i);
         let res = await ask(req);
         // With tool_choice auto a model can answer in text instead; ask once more.
         // Only its text is kept: a tool_use turn would need a tool_result.
@@ -115,8 +121,8 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
         report.pages[i] = { page: i + 1, findings: findings(res, i + 1) };
       } catch (e) {
         // One page failing keeps the others, and the tokens already paid for.
-        if (!(e instanceof IrisPdfError && e.code === "review_failed")) throw e;
-        report.pages[i] = { page: i + 1, findings: [], error: e.message };
+        if (e instanceof IrisPdfError && e.code !== "review_failed") throw e;
+        report.pages[i] = { page: i + 1, findings: [], error: (e as Error).message };
       }
     }
   };
