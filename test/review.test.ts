@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { review, tag, type ReviewOptions } from "../src/index.ts";
 import { IrisPdfError } from "../src/report.ts";
-import { cost } from "../src/review/review.ts";
+import { cost, plain } from "../src/review/review.ts";
 import { pageOutline, headingsBefore } from "../src/review/outline.ts";
 import * as mupdf from "mupdf";
 import { tagFixture, structTree, readFixture, mcidText } from "./helpers.ts";
@@ -199,7 +199,7 @@ test("a cyclic structure tree is read once; one nested too deep is refused", () 
 
 test("/ToUnicode ranges over 256 codes, destinations over 512 bytes and invalid code points are skipped", () => {
   const doc = new mupdf.PDFDocument();
-  const cmap = `beginbfrange <0000> <FFFFFFFF> <0041> <0001> <0002> <0041> <0003> <0003> <110000> endbfrange beginbfchar <0004> <D800> <0005> <${"0041".repeat(250_000)}> endbfchar`;
+  const cmap = `beginbfrange <0000> <FFFFFFFF> <0041> <0001> <0002> <0041> <0003> <0003> <110000> endbfrange beginbfchar <0004> <D800> <0005> <${"0041".repeat(250_000)}> endbfchar beginbfrange <${"F".repeat(300)}> <${"F".repeat(300)}> <0041> endbfrange`;
   const font = doc.addObject(doc.newDictionary());
   font.put("ToUnicode", doc.addStream(cmap, {}));
   const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <00010002000300040005> Tj EMC");
@@ -234,4 +234,17 @@ test("malformed marked content reads as unknown text; a tree the walk cannot rea
   kids.push(tagged.newNull());
   p.put("K", kids);
   await assert.rejects(review(tagged.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "unreadable" });
+});
+
+test("a /ToUnicode CMap over 1 MB is not read", () => {
+  const doc = new mupdf.PDFDocument();
+  const font = doc.addObject(doc.newDictionary());
+  font.put("ToUnicode", doc.addStream(`beginbfchar <0001> <0041> endbfchar${" ".repeat(1 << 20)}`, {}));
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <0001> Tj EMC");
+  page.get("Resources").put("Font", doc.newDictionary()).put("F1", font);
+  assert.equal(mcidText(page).get(0), "\ufffd");
+});
+
+test("printed findings have no control characters", () => {
+  assert.equal(plain("a\u001b[2Jb\nc\u009bd"), "a [2Jb c d");
 });

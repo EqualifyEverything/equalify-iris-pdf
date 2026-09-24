@@ -6,21 +6,24 @@ import { IrisPdfError, EXIT } from "../report.ts";
 
 const MAX_DEPTH = 64;
 
-// gid -> text, from a Type0 font's /ToUnicode CMap. A bfrange spans at most
-// 256 codes and a destination at most 512 bytes (PDF 9.10.3); longer ones and
-// invalid code points are skipped.
+// gid -> text, from a Type0 font's /ToUnicode CMap. Within PDF's limits
+// (9.7.6.2, 9.10.3): a CMap up to 1 MB, codes up to 4 bytes, a bfrange of 256
+// codes, a destination up to 512 bytes. Anything else, and invalid code points,
+// is skipped.
 function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   const map = new Map<number, string>();
   if (!font.isDictionary() || !font.get("ToUnicode").isStream()) return map;
-  const cmap = font.get("ToUnicode").readStream().asString();
+  const buf = font.get("ToUnicode").readStream();
+  if (buf.getLength() > 1 << 20) return map;
+  const cmap = buf.asString();
   const hex = (h: string) => parseInt(h, 16);
   const valid = (u: number) => u <= 0x10ffff && (u < 0xd800 || u > 0xdfff);
   const str = (h: string) => String.fromCodePoint(...(h.match(/.{4}/g) ?? []).map(hex).filter(valid));
   for (const [, body] of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-    for (const [, a, b] of body.matchAll(/<(\w+)>\s*<(\w+)>/g)) if (b.length <= 1024) map.set(hex(a), str(b));
+    for (const [, a, b] of body.matchAll(/<([0-9a-fA-F]{1,8})>\s*<([0-9a-fA-F]{1,1024})>/g)) map.set(hex(a), str(b));
   }
   for (const [, body] of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
-    for (const [, a, b, c] of body.matchAll(/<(\w+)>\s*<(\w+)>\s*<(\w+)>/g)) {
+    for (const [, a, b, c] of body.matchAll(/<([0-9a-fA-F]{1,8})>\s*<([0-9a-fA-F]{1,8})>\s*<([0-9a-fA-F]{1,8})>/g)) {
       const [lo, hi, u] = [hex(a), hex(b), hex(c)];
       if (hi - lo > 255) continue;
       for (let g = lo; g <= hi; g++) if (valid(u + g - lo)) map.set(g, String.fromCodePoint(u + g - lo));

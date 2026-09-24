@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { tag, fields, newReport, IrisPdfError, EXIT, VERSION, type TagOptions } from "./index.ts";
 import { checkPdfUa } from "./verify/pdfua.ts";
-import { review, type Provider } from "./review/review.ts";
+import { review, plain, type Provider } from "./review/review.ts";
 
 const USAGE = `iris-pdf ${VERSION}
 
@@ -75,9 +75,9 @@ async function main(argv: string[]): Promise<number> {
   if (command === "review") {
     if (args.provider && args.provider !== "anthropic" && args.provider !== "bedrock") badArgs("--provider is anthropic or bedrock.");
     const result = await review(readPdf(args.pdf), { provider: args.provider as Provider, model: args.model, password: args.password });
-    for (const { page, findings } of result.pages) for (const f of findings) console.log(`page ${page}\t${f.severity}\t${f.kind}\t${f.element}\t${f.detail}`);
+    for (const { page, findings } of result.pages) for (const f of findings) console.log(`page ${page}\t${f.severity}\t${f.kind}\t${plain(f.element)}\t${plain(f.detail)}`);
     const failed = result.pages.filter((p) => p.error);
-    for (const p of failed) console.error(`iris-pdf: review_failed: page ${p.page}: ${p.error}`);
+    for (const p of failed) console.error(`iris-pdf: review_failed: page ${p.page}: ${plain(p.error!)}`);
     const n = result.pages.reduce((n, p) => n + p.findings.length, 0);
     const usd = result.estimatedCostUsd === null ? "" : `, about US$${result.estimatedCostUsd.toFixed(4)}`;
     console.error(`${n} finding${n === 1 ? "" : "s"} from ${result.model} (${result.usage.inputTokens} input, ${result.usage.outputTokens} output tokens${usd}).`);

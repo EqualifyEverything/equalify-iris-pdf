@@ -180,6 +180,9 @@ function findings(res: unknown, page: number): Finding[] {
   }));
 }
 
+// Findings quote the document; control characters in them could drive a terminal.
+export const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
+
 export function cost(provider: Provider, model: string, usage: ReviewReport["usage"]): number | null {
   const price = PRICES.find(([re]) => re.test(model));
   if (!price) return null;
