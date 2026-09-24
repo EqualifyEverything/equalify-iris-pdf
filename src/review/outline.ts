@@ -22,6 +22,7 @@ function props(e: Elem): string[] {
   }
   for (const o of e.objr) {
     const sub = o.get("Subtype").asName();
+    if (o.get("Contents").isString()) out.push(`Contents=${quote(o.get("Contents").asString())}`);
     if (sub === "Link") {
       const act = o.get("A"), s = act.isDictionary() && act.get("S").isName() ? act.get("S").asName() : "";
       if (s === "URI") out.push(`href=${act.get("URI").isString() ? quote(act.get("URI").asString()) : "(none)"}`);

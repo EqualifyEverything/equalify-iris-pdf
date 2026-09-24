@@ -7,7 +7,8 @@ import { IrisPdfError, EXIT } from "../report.ts";
 const MAX_DEPTH = 64;
 
 // gid -> text, from a Type0 font's /ToUnicode CMap. A bfrange spans at most
-// 256 codes (PDF 9.10.3); longer ones and invalid code points are skipped.
+// 256 codes and a destination at most 512 bytes (PDF 9.10.3); longer ones and
+// invalid code points are skipped.
 function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   const map = new Map<number, string>();
   const cmap = font.get("ToUnicode").readStream().asString();
@@ -15,7 +16,7 @@ function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   const valid = (u: number) => u <= 0x10ffff && (u < 0xd800 || u > 0xdfff);
   const str = (h: string) => String.fromCodePoint(...(h.match(/.{4}/g) ?? []).map(hex).filter(valid));
   for (const [, body] of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-    for (const [, a, b] of body.matchAll(/<(\w+)>\s*<(\w+)>/g)) map.set(hex(a), str(b));
+    for (const [, a, b] of body.matchAll(/<(\w+)>\s*<(\w+)>/g)) if (b.length <= 1024) map.set(hex(a), str(b));
   }
   for (const [, body] of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
     for (const [, a, b, c] of body.matchAll(/<(\w+)>\s*<(\w+)>\s*<(\w+)>/g)) {

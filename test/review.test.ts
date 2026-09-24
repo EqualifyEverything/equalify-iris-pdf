@@ -95,7 +95,7 @@ test("each page is reviewed with its own outline and the headings before it", as
 
 test("the outline shows links, table headers and form fields as a screen reader reads them", () => {
   const structure = pageOutline(structTree(tagFixture("structure").doc), 0);
-  assert.match(structure, /^ {2}Link href="https:\/\/example\.org\/permits" "the city website"$/m);
+  assert.match(structure, /^ {2}Link Contents="the city website" href="https:\/\/example\.org\/permits" "the city website"$/m);
   assert.match(structure, /^ {6}TH ID="p1-th1" Scope=Column "Zone"$/m);
   assert.match(structure, /^ {6}TD Headers="p1-th1" "North"$/m);
   const form = pageOutline(structTree(tagFixture("form-acroform").doc), 0);
@@ -197,12 +197,12 @@ test("a cyclic structure tree is read once; one nested too deep is refused", () 
   assert.throws(() => structTree(doc), { code: "bad_structure" });
 });
 
-test("/ToUnicode ranges over 256 codes and invalid code points are skipped", () => {
+test("/ToUnicode ranges over 256 codes, destinations over 512 bytes and invalid code points are skipped", () => {
   const doc = new mupdf.PDFDocument();
-  const cmap = "beginbfrange <0000> <FFFFFFFF> <0041> <0001> <0002> <0041> <0003> <0003> <110000> endbfrange beginbfchar <0004> <D800> endbfchar";
+  const cmap = `beginbfrange <0000> <FFFFFFFF> <0041> <0001> <0002> <0041> <0003> <0003> <110000> endbfrange beginbfchar <0004> <D800> <0005> <${"0041".repeat(250_000)}> endbfchar`;
   const font = doc.addObject(doc.newDictionary());
   font.put("ToUnicode", doc.addStream(cmap, {}));
-  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <0001000200030004> Tj EMC");
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <00010002000300040005> Tj EMC");
   page.get("Resources").put("Font", doc.newDictionary()).put("F1", font);
-  assert.equal(mcidText(page).get(0), "AB\ufffd");
+  assert.equal(mcidText(page).get(0), "AB\ufffd\ufffd");
 });
