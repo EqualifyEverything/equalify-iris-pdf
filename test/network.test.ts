@@ -1,5 +1,5 @@
-// The tool never touches the network (spec §3): tag the whole corpus with
-// every way out blocked. This file runs in its own process.
+// Tagging never touches the network (spec §3); only the opt-in review does.
+// Tag the whole corpus with every way out blocked. This file runs in its own process.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
