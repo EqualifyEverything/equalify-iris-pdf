@@ -88,10 +88,13 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   assert.equal(report.warnings.find((w) => w.code === "font_not_embedded")?.detail?.split(";")[0], "Helvetica, Helvetica-Bold");
   assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
   assert.ok(!tagFixture("text-embedded").report.warnings.some((w) => w.code === "font_not_embedded"));
-  // A field appearance can take its font from the form's default resources.
+  // The form's default resources count only for an appearance with none of its own.
   const form = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const helv = form.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica" });
   form.getTrailer().get("Root").put("AcroForm", form.addObject({ Fields: [], DR: { Font: { Helv: helv } } }));
+  assert.deepEqual(unembeddedFonts(form), []);
+  const ap = form.addStream("BT /Helv 10 Tf (x) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 20] });
+  form.findPage(0).put("Annots", [form.addObject({ Type: "Annot", Subtype: "Widget", Rect: [0, 0, 50, 20], AP: { N: ap } })]);
   assert.deepEqual(unembeddedFonts(form), ["Helvetica"]);
 });
 
@@ -223,6 +226,10 @@ test("marked content left from an old tag tree is reported and stops the PDF/UA 
   const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
   assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 1 /);
   assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  // A form XObject that cannot be decoded is not searched, so it counts as marked.
+  const bad = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  bad.findPage(0).get("Resources").put("XObject", { Bad: bad.addRawStream("x", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1], Filter: "FlateDecode", DecodeParms: { Predictor: 2, BitsPerComponent: 7 } }) });
+  assert.deepEqual(pagesWithMcids(bad), [1]);
 });
 
 test("an internal link: Reference > Link owns the GoTo annotation, which gets the link text", () => {
@@ -358,6 +365,7 @@ test("deeply nested form XObjects do not overflow the stack", () => {
   let inner = doc.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] });
   for (let i = 0; i < 20000; i++) inner = doc.addStream("/X Do", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1], Resources: { XObject: { X: inner } } });
   doc.findPage(0).get("Resources").put("XObject", { Deep: inner });
-  assert.deepEqual(unembeddedFonts(doc), []);
-  assert.deepEqual(pagesWithMcids(doc), [], "past the depth limit, not searched");
+  // Past the depth limit nothing is searched, and the claim is withheld.
+  assert.deepEqual(unembeddedFonts(doc), ["(nested too deeply to check)"]);
+  assert.deepEqual(pagesWithMcids(doc), [1]);
 });

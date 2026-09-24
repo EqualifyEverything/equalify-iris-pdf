@@ -17,15 +17,23 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject): 
 
 // Pages (1-based) whose own drawing has marked-content ids, left from a tag
 // tree since removed. Inside our artifact they are tagged content in an
-// artifact, which PDF/UA-1 forbids (7.1). Form XObjects are searched to a depth of 32.
+// artifact, which PDF/UA-1 forbids (7.1). A stream that cannot be read, or
+// forms nested past a depth of 32, count as marked.
 export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
   const out: number[] = [];
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i), seen = new Set<number>();
-    const marked = (s: mupdf.PDFObject) => /\/MCID\b/.test(s.readStream().asString());
+    const marked = (s: mupdf.PDFObject) => {
+      try {
+        return /\/MCID\b/.test(s.readStream().asString());
+      } catch {
+        return true;
+      }
+    };
     const forms = (res: mupdf.PDFObject, depth: number): boolean => {
       let found = false;
-      if (depth > 32 || !res.isDictionary()) return false;
+      if (depth > 32) return true;
+      if (!res.isDictionary()) return false;
       res.get("XObject").forEach((x) => {
         if (found || !x.isStream() || x.get("Subtype").asName() !== "Form") return;
         if (x.isIndirect()) {

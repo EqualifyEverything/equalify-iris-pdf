@@ -59,6 +59,7 @@ test("a damaged PDF is rewritten from its repair, checked, and keeps its encrypt
   assert.equal(report.verification.textPreserved, true);
   assert.equal(report.verification.differingPixels, 0);
   assert.ok(!new mupdf.PDFDocument(out).wasRepaired());
+  assert.throws(() => tag(damage(readFixture("text-simple.pdf")), simple, { strict: true }), { code: "strict", message: /repaired/ });
   const locked = tag(damage(readFixture("encrypted.pdf")), simple, { password: "open" });
   const back = new mupdf.PDFDocument(locked);
   assert.ok(back.needsPassword() && back.authenticatePassword("open"));

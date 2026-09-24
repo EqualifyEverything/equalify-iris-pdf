@@ -55,9 +55,9 @@ export class FontSet {
 }
 
 // Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).
-// Looks in every page, form XObject and annotation appearance, to a nesting depth of 32.
+// Looks in every page, form XObject and annotation appearance. Nesting past a depth of 32 is not checked, and counts as unembedded.
 export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
-  const out = new Set<string>(), seen = new Set<number>();
+  const out = new Set<string>(), seen = new Set<number>(), dr = doc.getTrailer().get("Root", "AcroForm", "DR");
   const once = (o: mupdf.PDFObject) => {
     if (!o.isIndirect()) return true;
     if (seen.has(o.asIndirect())) return false;
@@ -65,7 +65,8 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     return true;
   };
   const resources = (res: mupdf.PDFObject, depth: number) => {
-    if (depth > 32 || !res.isDictionary() || !once(res)) return;
+    if (depth > 32) return void out.add("(nested too deeply to check)");
+    if (!res.isDictionary() || !once(res)) return;
     res.get("Font").forEach((f) => { if (f.isDictionary() && once(f)) font(f, depth); });
     res.get("XObject").forEach((x) => { if (x.isStream() && x.get("Subtype").asName() === "Form" && once(x)) resources(x.get("Resources"), depth + 1); });
   };
@@ -78,10 +79,10 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
     if (!d.isDictionary() || !["FontFile", "FontFile2", "FontFile3"].some((k) => d.get(k).isStream())) out.add(f.get("BaseFont").asName() || "(unnamed)");
   };
   const appearance = (ap: mupdf.PDFObject) => {
-    if (ap.isStream()) return resources(ap.get("Resources"), 0);
+    // An appearance with no resources of its own takes the form's (/DR).
+    if (ap.isStream()) return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
     if (ap.isDictionary()) ap.forEach(appearance);
   };
-  resources(doc.getTrailer().get("Root", "AcroForm", "DR"), 0); // fonts a field appearance can name
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i);
     resources(page.getInheritable("Resources"), 0);

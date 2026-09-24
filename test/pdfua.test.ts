@@ -16,7 +16,7 @@ const dir = mkdtempSync(join(tmpdir(), "iris-pdf-ua-"));
 
 // name -> should the output claim PDF/UA-1?
 const CORPUS: [string, boolean][] = [
-  ["text-embedded", true], ["blank-page", true], ["scan-300dpi", true], ["scan-skewed", true],
+  ["text-embedded", true], ["structure", true], ["blank-page", true], ["scan-300dpi", true], ["scan-skewed", true],
   ["text-simple", false], ["text-two-column", false], ["links", false], ["form-acroform", false], ["cjk", false], ["mixed", false],
 ];
 const SCANS = new Set(["scan-300dpi", "scan-skewed", "mixed"]);

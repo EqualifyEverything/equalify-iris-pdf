@@ -32,7 +32,7 @@ export type TagOptions = OpenOptions & {
 };
 
 // With --strict these fail the run instead of only being reported.
-const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete", "page_not_tagged"];
+const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete", "page_not_tagged", "repaired"];
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
@@ -69,7 +69,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   const marked = pagesWithMcids(doc);
-  if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree; the output does not claim PDF/UA-1.` });
+  if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
   const fonts = new FontSet();
   const written: { page: mupdf.PDFObject; overlay: string }[] = [];

@@ -143,6 +143,34 @@ pagesJson("links.pages.json", [{
   html: '<h1>Contact</h1><p>Apply online at <a href="https://example.org/permits">the city website</a>.</p>',
 }]);
 
+// --- structure: embedded fonts, and a list, table, figure, footnote and link, so veraPDF sees each shape.
+{
+  const doc = textDoc([
+    furniture(1) +
+    show(20, 340, 14, "Permit types", "F2") +
+    show(20, 322, 9, "1. Resident") + show(20, 310, 9, "2. Visitor") +
+    show(20, 290, 9, "Zone") + show(120, 290, 9, "Fee") +
+    show(20, 278, 9, "North") + show(120, 278, 9, "20") +
+    show(20, 250, 9, "Map of the permit zones") +
+    show(20, 225, 9, "Apply online at the city website.1") +
+    show(20, 205, 7, "1. Renewals are online too."),
+  ], true);
+  const x0 = 20 + width("Apply online at ", 9), x1 = x0 + width("the city website", 9);
+  doc.loadPage(0).getObject().put("Annots", [doc.addObject({
+    Type: "Annot", Subtype: "Link", Rect: [x0, 222, x1, 233], Border: [0, 0, 0],
+    A: { S: "URI", URI: doc.newString("https://example.org/permits") },
+  })]);
+  save("structure.pdf", doc);
+}
+pagesJson("structure.pages.json", [{
+  sourcePage: 1,
+  html: "<h1>Permit types</h1><ol><li>Resident</li><li>Visitor</li></ol>" +
+    "<table><tr><th scope=col>Zone</th><th scope=col>Fee</th></tr><tr><td>North</td><td>20</td></tr></table>" +
+    '<figure><img alt="Zones north and south of the river"><figcaption>Map of the permit zones</figcaption></figure>' +
+    '<p>Apply online at <a href="https://example.org/permits">the city website</a>.<a href="#fn1">1</a></p>' +
+    '<ol><li id="fn1">Renewals are online too.</li></ol>',
+}]);
+
 // --- cjk: a non-Latin script, with an embedded CJK font.
 {
   const doc = new mupdf.PDFDocument();

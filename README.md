@@ -39,7 +39,7 @@ iris-pdf check --pdf out.pdf          # runs veraPDF's PDF/UA-1 check, if instal
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
 | `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
-| `--strict` | Fail on any warning that means content went untagged or unmatched. |
+| `--strict` | Fail on any warning that means content went untagged or unmatched, or that the file was `repaired`. |
 
 ### pages.json
 
