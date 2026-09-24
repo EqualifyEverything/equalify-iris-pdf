@@ -90,6 +90,7 @@ test("the tagged form: one Form element per field, widgets tied by reference and
   const w = widgets(doc);
   assert.equal(w.get("applicant.name")![0].getLabel(), "Full name");
   assert.equal(w.get("contact")![0].getLabel(), "Contact me by");
+  assert.equal(w.get("reset")![0].getLabel(), "reset", "a field the HTML does not name still gets a name");
   assert.equal(doc.loadPage(0).getObject().get("Tabs").asName(), "S");
 });
 

@@ -3,7 +3,7 @@
 import * as mupdf from "mupdf";
 import { openPdf, save, type OpenOptions } from "./pdf/document.ts";
 import { artifactStreams, drawsNothing, Overlay } from "./pdf/content.ts";
-import { FontSet } from "./pdf/fonts.ts";
+import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
@@ -65,6 +65,9 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const widgets = allWidgets(doc).map((w) => ({ ...w, box: w.widget.getBounds() as Box, used: false }));
   if (opts.flatten) doc.bake(false, true);
 
+  // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
+  const unembedded = unembeddedFonts(doc);
+  if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
   const fonts = new FontSet();
   const written: { page: mupdf.PDFObject; overlay: string }[] = [];
@@ -108,7 +111,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   if (fonts.missing.size) warn({ code: "missing_glyph", detail: [...fonts.missing].join("") });
   struct.finish();
   report.structure = { elements: struct.elements, byType: struct.byType };
-  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged);
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length);
 
   const out = save(doc);
   report.sizeIncreaseBytes = out.length - pdf.length;
@@ -233,6 +236,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   for (const w of ctx.widgets.filter((w) => !w.used && !ctx.flatten)) {
     const elem = ctx.struct.add(ctx.struct.top, "Form");
     ctx.struct.objr(elem, pageObj, w.widget.getObject());
+    nameField(w, "", ctx.doc);
     w.used = true;
     warn({ code: "field_not_in_html", detail: w.name });
   }
@@ -329,8 +333,18 @@ function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
   const name = f.group || f.label;
   for (const w of mine) {
     e.struct.objr(elem, e.pageObj, w.widget.getObject());
-    if (name) w.field.put("TU", e.doc.newString(name));
+    nameField(w, name, e.doc);
   }
+}
+
+// /TU, the name a screen reader announces (PDF/UA-1 7.18.1). The HTML's label
+// wins; without one, keep the source's, else the button caption, else the field name.
+function nameField(w: Widget, label: string, doc: mupdf.PDFDocument) {
+  const had = w.field.get("TU");
+  if (!label && had.isString() && had.asString()) return;
+  const caption = w.widget.getObject().get("MK", "CA");
+  const name = label || (caption.isString() && caption.asString()) || w.name.split(".").at(-1)!;
+  w.field.put("TU", doc.newString(name));
 }
 
 // The value a flattened field shows, as text.

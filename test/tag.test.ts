@@ -10,7 +10,7 @@ import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture } from "./helpers.ts";
 
-const TEXT = ["text-simple", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
+const TEXT = ["text-simple", "text-embedded", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
 const SCANS = ["scan-300dpi", "scan-skewed", "mixed"];
 const noOcr = { skip: !tesseractInstalled() && "Tesseract is not installed" };
 
@@ -70,7 +70,7 @@ test("text-simple: headings and paragraphs, running header left as an artifact",
 });
 
 test("document info: language, title, marked, PDF/UA identifier", () => {
-  const { doc } = tagFixture("text-simple");
+  const { doc } = tagFixture("text-embedded");
   const root = doc.getTrailer().get("Root");
   assert.equal(root.get("Lang").asString(), "en");
   assert.equal(root.get("MarkInfo", "Marked").asBoolean(), true);
@@ -79,6 +79,13 @@ test("document info: language, title, marked, PDF/UA identifier", () => {
   const packet = root.get("Metadata").readStream().asString();
   assert.match(packet, /<pdfuaid:part>1<\/pdfuaid:part>/);
   assert.match(packet, /<rdf:li xml:lang="x-default">Test document<\/rdf:li>/);
+});
+
+test("a source font that is not embedded is reported, and PDF/UA is not claimed", () => {
+  const { doc, report } = tagFixture("text-simple");
+  assert.equal(report.warnings.find((w) => w.code === "font_not_embedded")?.detail?.split(";")[0], "Helvetica, Helvetica-Bold");
+  assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.ok(!tagFixture("text-embedded").report.warnings.some((w) => w.code === "font_not_embedded"));
 });
 
 test("links: the Link element owns its annotation, which gets the link text", () => {
@@ -96,6 +103,8 @@ test("cjk: every character is recoverable through ToUnicode", () => {
   const want = pagesOf("cjk").pages[0].html.replace(/<[^>]+>|\s/g, "");
   assert.equal(text, want);
   assert.ok(!report.warnings.some((w) => w.code === "missing_glyph"));
+  const cid = doc.findPage(0).get("Resources", "Font", "IrisF1", "DescendantFonts").get(0);
+  assert.equal(cid.get("CIDToGIDMap").asName(), "Identity");
 });
 
 test("a scan with OCR off is refused, or left untagged with --partial", () => {

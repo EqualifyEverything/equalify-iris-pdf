@@ -21,10 +21,25 @@ function helvetica(doc: mupdf.PDFDocument, bold = false) {
   });
 }
 
-function textDoc(pages: string[]): mupdf.PDFDocument {
+// embed: embedded fonts, as PDF/UA requires, so the file can reach the claim.
+// mupdf embeds only composite fonts, so each string is rewritten as glyph ids.
+function textDoc(pages: string[], embed = false): mupdf.PDFDocument {
   const doc = new mupdf.PDFDocument();
-  const res = doc.addObject({ Font: { F1: helvetica(doc), F2: helvetica(doc, true) } });
-  for (const c of pages) doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, c));
+  if (!embed) {
+    const res = doc.addObject({ Font: { F1: helvetica(doc), F2: helvetica(doc, true) } });
+    for (const c of pages) doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, c));
+    return doc;
+  }
+  const fonts = { F1: new mupdf.Font("Helvetica"), F2: new mupdf.Font("Helvetica-Bold") };
+  const res = doc.addObject({ Font: { F1: doc.addFont(fonts.F1), F2: doc.addFont(fonts.F2) } });
+  const gids = (font: mupdf.Font, s: string) => "<" + [...s].map((c) => font.encodeCharacter(c).toString(16).padStart(4, "0")).join("") + ">";
+  const unlit = (s: string) => s.slice(1, -1).replace(/\\(.)/g, "$1");
+  for (const c of pages) {
+    const content = c.replace(/\/(F[12]) ([\d.]+) Tf (.*?) (\((?:\\.|[^\\)])*\)) Tj/g,
+      (_, f: "F1" | "F2", size, td, str) => `/${f} ${size} Tf ${td} ${gids(fonts[f], unlit(str))} Tj`);
+    doc.insertPage(-1, doc.addPage([0, 0, W, H], 0, res, content));
+  }
+  doc.subsetFonts();
   return doc;
 }
 
@@ -52,6 +67,10 @@ const simpleHtml =
   "Bring proof of address to the permit office.</p><h2>Fees</h2><p>A permit costs twenty dollars a year.</p>";
 save("text-simple.pdf", textDoc([simple]));
 pagesJson("text-simple.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
+
+// --- text-embedded: text-simple with its fonts embedded.
+save("text-embedded.pdf", textDoc([simple], true));
+pagesJson("text-embedded.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
 
 // --- text-two-column: operators run across the columns line by line, so the
 // PDF's own order interleaves them. Iris's HTML reads left column first.
@@ -101,7 +120,7 @@ pagesJson("mixed.pages.json", [
 ]);
 
 // --- blank-page: page 2 is empty, and Iris sends no HTML for it.
-save("blank-page.pdf", textDoc([simple, ""]));
+save("blank-page.pdf", textDoc([simple, ""], true));
 pagesJson("blank-page.pages.json", [{ sourcePage: 1, html: simpleHtml }]);
 
 // --- links: a link annotation over its text.
