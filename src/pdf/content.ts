@@ -18,15 +18,14 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject): 
 // Pages (1-based) whose own drawing has marked-content ids, left from a tag
 // tree since removed. Inside our artifact they are tagged content in an
 // artifact, which PDF/UA-1 forbids (7.1). A stream that cannot be read, or
-// forms nested past a depth of 32, count as marked.
+// forms nested past a depth of 32, count as marked. Tiling patterns are searched too.
 export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
   const out: number[] = [];
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i), seen = new Set<number>();
-    const marked = (s: mupdf.PDFObject) => {
+    const marked = (...s: mupdf.PDFObject[]) => {
       try {
-        // An inline property list ending in BDC; not the same letters in a string.
-        return /\/MCID\s+\d+[^()]*?>>\s*BDC/.test(s.readStream().asString());
+        return /\/MCID\b/.test(withoutStrings(s.map((x) => x.readStream().asString()).join("\n")));
       } catch {
         return true;
       }
@@ -37,22 +36,39 @@ export function pagesWithMcids(doc: mupdf.PDFDocument): number[] {
       if (!res.isDictionary()) return false;
       // A named property list (/Tag /Name BDC) keeps its /MCID in the resources.
       res.get("Properties").forEach((p) => { if (p.isDictionary() && !p.get("MCID").isNull()) found = true; });
-      res.get("XObject").forEach((x) => {
-        if (found || !x.isStream() || x.get("Subtype").asName() !== "Form") return;
+      const drawn = (x: mupdf.PDFObject) => x.isStream() && (x.get("Subtype").asName() === "Form" || x.get("PatternType").asNumber() === 1);
+      [res.get("XObject"), res.get("Pattern")].forEach((d) => d.forEach((x) => {
+        if (found || !drawn(x)) return;
         if (x.isIndirect()) {
           if (seen.has(x.asIndirect())) return;
           seen.add(x.asIndirect());
         }
         found = marked(x) || forms(x.get("Resources"), depth + 1);
-      });
+      }));
       return found;
     };
     const contents = page.get("Contents"), streams: mupdf.PDFObject[] = [];
     if (contents.isArray()) contents.forEach((s) => { if (s.isStream()) streams.push(s); });
     else if (contents.isStream()) streams.push(contents);
-    if (streams.some(marked) || forms(page.getInheritable("Resources"), 0)) out.push(i + 1);
+    if ((streams.length && marked(...streams)) || forms(page.getInheritable("Resources"), 0)) out.push(i + 1);
   }
   return out;
+}
+
+// A content stream with its string literals removed, so their text is not read as operators.
+// An unclosed string (binary inline-image data, say) leaves the stream as it was.
+export function withoutStrings(s: string): string {
+  let out = "", depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (depth) {
+      if (c === "\\") i++;
+      else if (c === "(") depth++;
+      else if (c === ")") depth--;
+    } else if (c === "(") depth = 1;
+    else out += c;
+  }
+  return depth ? s : out;
 }
 
 // True if the page's own content paints nothing (annotations aside).
