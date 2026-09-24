@@ -2,19 +2,26 @@
 // structure tree, and the text of the marked content each element points at.
 // Only our overlay's text is decoded (hex glyph ids through /ToUnicode).
 import * as mupdf from "mupdf";
+import { IrisPdfError, EXIT } from "../report.ts";
 
-// gid -> text, from a Type0 font's /ToUnicode CMap.
+const MAX_DEPTH = 64;
+
+// gid -> text, from a Type0 font's /ToUnicode CMap. A bfrange spans at most
+// 256 codes (PDF 9.10.3); longer ones and invalid code points are skipped.
 function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   const map = new Map<number, string>();
   const cmap = font.get("ToUnicode").readStream().asString();
   const hex = (h: string) => parseInt(h, 16);
-  const str = (h: string) => String.fromCodePoint(...(h.match(/.{4}/g) ?? []).map(hex));
+  const valid = (u: number) => u <= 0x10ffff && (u < 0xd800 || u > 0xdfff);
+  const str = (h: string) => String.fromCodePoint(...(h.match(/.{4}/g) ?? []).map(hex).filter(valid));
   for (const [, body] of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
     for (const [, a, b] of body.matchAll(/<(\w+)>\s*<(\w+)>/g)) map.set(hex(a), str(b));
   }
   for (const [, body] of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
     for (const [, a, b, c] of body.matchAll(/<(\w+)>\s*<(\w+)>\s*<(\w+)>/g)) {
-      for (let g = hex(a), u = hex(c); g <= hex(b); g++, u++) map.set(g, String.fromCodePoint(u));
+      const [lo, hi, u] = [hex(a), hex(b), hex(c)];
+      if (hi - lo > 255) continue;
+      for (let g = lo; g <= hi; g++) if (valid(u + g - lo)) map.set(g, String.fromCodePoint(u + g - lo));
     }
   }
   return map;
@@ -49,6 +56,8 @@ export type Elem = {
 };
 
 // The structure tree, each element with the text of its own marked content.
+// A root /K that is an array gives a root of type "". An element seen twice
+// (a cycle or a shared kid) is read once; nesting past MAX_DEPTH is refused.
 export function structTree(doc: mupdf.PDFDocument): Elem {
   const index = new Map<number, number>();
   for (let i = 0; i < doc.countPages(); i++) index.set(doc.findPage(i).asIndirect(), i);
@@ -57,7 +66,10 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
     if (!cache.has(pg.asIndirect())) cache.set(pg.asIndirect(), mcidText(pg));
     return cache.get(pg.asIndirect())!.get(mcid) ?? "";
   };
-  const visit = (e: mupdf.PDFObject): Elem => {
+  const seen = new Set<number>();
+  const visit = (e: mupdf.PDFObject, depth: number): Elem => {
+    if (depth > MAX_DEPTH) throw new IrisPdfError("bad_structure", `The structure tree is nested deeper than ${MAX_DEPTH} levels.`, EXIT.badInput);
+    if (e.isIndirect()) seen.add(e.asIndirect());
     const node: Elem = { type: e.get("S").asName(), text: "", kids: [], parts: [], dict: e, objr: [], pages: new Set() };
     const parts = node.parts;
     const on = (pg: mupdf.PDFObject) => {
@@ -72,8 +84,8 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
       else if (x.get("Type").isName() && x.get("Type").asName() === "OBJR") {
         node.objr.push(x.get("Obj"));
         on(x.get("Pg").isNull() ? e.get("Pg") : x.get("Pg"));
-      } else {
-        const kid = visit(x);
+      } else if (x.isDictionary() && !(x.isIndirect() && seen.has(x.asIndirect()))) {
+        const kid = visit(x, depth + 1);
         node.kids.push(kid);
         parts.push(kid);
       }
@@ -83,7 +95,8 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
     node.text = parts.filter((p) => typeof p === "string" && p).join(" ");
     return node;
   };
-  return visit(doc.getTrailer().get("Root", "StructTreeRoot", "K"));
+  const root = doc.getTrailer().get("Root", "StructTreeRoot");
+  return visit(root.get("K").isDictionary() ? root.get("K") : root, 0);
 }
 
 // All text in reading order.

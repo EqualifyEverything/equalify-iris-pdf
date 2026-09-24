@@ -94,13 +94,13 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | 0 | Done. |
 | 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged`, `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
-| 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_credentials`. |
+| 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 
 Errors print one line: `iris-pdf: <code>: <message>`.
 
 ## Privacy
 
-Form values are personal data. They are never printed, logged, or put in the report or an error message; only field names are. `review` sends page images, which show any filled-in values, to the model provider.
+Form values are personal data. They are never printed, logged, or put in the report or an error message; only field names are. `review` sends page images, which show any filled-in values, to the model provider. After `--flatten` the values are also tagged text, so they are sent as text too and can appear in its findings.
 
 ## Known limits
 

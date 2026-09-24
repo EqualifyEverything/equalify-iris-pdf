@@ -12,9 +12,14 @@ const quote = (s: string) => JSON.stringify(s.slice(0, MAX_TEXT)) + (s.length > 
 function props(e: Elem): string[] {
   const d = e.dict, out: string[] = [];
   const str = (key: string) => (d.get(key).isString() ? d.get(key).asString() : undefined);
-  for (const key of ["Alt", "ActualText", "Lang", "T"]) if (str(key) !== undefined) out.push(`${key}=${quote(str(key)!)}`);
-  const scope = d.get("A").isDictionary() ? d.get("A").get("Scope") : null;
-  if (scope?.isName()) out.push(`Scope=${scope.asName()}`);
+  for (const key of ["ID", "Alt", "ActualText", "Lang", "T"]) if (str(key) !== undefined) out.push(`${key}=${quote(str(key)!)}`);
+  const a = d.get("A").isDictionary() ? d.get("A") : null;
+  if (a?.get("Scope").isName()) out.push(`Scope=${a.get("Scope").asName()}`);
+  if (a?.get("Headers").isArray()) {
+    const ids: string[] = [];
+    a.get("Headers").forEach((h) => { if (h.isString()) ids.push(h.asString()); });
+    out.push(`Headers=${quote(ids.join(" "))}`);
+  }
   for (const o of e.objr) {
     const sub = o.get("Subtype").asName();
     if (sub === "Link") {

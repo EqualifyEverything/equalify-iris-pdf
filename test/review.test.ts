@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { review, type ReviewOptions } from "../src/index.ts";
 import { cost } from "../src/review/review.ts";
 import { pageOutline, headingsBefore } from "../src/review/outline.ts";
-import { tagFixture, structTree, readFixture } from "./helpers.ts";
+import * as mupdf from "mupdf";
+import { tagFixture, structTree, readFixture, mcidText } from "./helpers.ts";
 
 type Body = { model: string; tools: { name: string }[]; tool_choice?: unknown; messages: { role: string; content: any }[] };
 
@@ -83,7 +84,8 @@ test("each page is reviewed with its own outline and the headings before it", as
 test("the outline shows links, table headers and form fields as a screen reader reads them", () => {
   const structure = pageOutline(structTree(tagFixture("structure").doc), 0);
   assert.match(structure, /^ {2}Link href="https:\/\/example\.org\/permits" "the city website"$/m);
-  assert.match(structure, /^ {6}TH Scope=Column "Zone"$/m);
+  assert.match(structure, /^ {6}TH ID="p1-th1" Scope=Column "Zone"$/m);
+  assert.match(structure, /^ {6}TD Headers="p1-th1" "North"$/m);
   const form = pageOutline(structTree(tagFixture("form-acroform").doc), 0);
   assert.match(form, /^ {2}Form Alt="Full name" field=Tx name="Full name"$/m);
   assert.match(form, /^Form field=Btn name="reset"$/m); // the reset button is not in the HTML
@@ -104,4 +106,69 @@ test("cost: list prices, 10% more on Bedrock regional profiles, null when unknow
   assert.equal(cost("bedrock", "us.anthropic.claude-sonnet-5", usage), 13.2);
   assert.equal(cost("bedrock", "global.anthropic.claude-haiku-4-5-20251001-v1:0", usage), 6);
   assert.equal(cost("anthropic", "some-other-model", usage), null);
+});
+
+test("a text answer is asked again without its tool calls, which would need a tool_result", async () => {
+  const other = { content: [{ type: "text", text: "Checking." }, { type: "tool_use", id: "t1", name: "other", input: {} }], stop_reason: "tool_use" };
+  const { bodies, send } = stub(other, reply([]));
+  await review(tagFixture("text-simple").out, { send });
+  assert.deepEqual(bodies[1].messages[1].content, [{ type: "text", text: "Checking." }]);
+});
+
+test("findings cut off at max_tokens fail the review", async () => {
+  const { bodies, send } = stub({ ...reply([]), stop_reason: "max_tokens" });
+  await assert.rejects(review(tagFixture("text-simple").out, { send }), { code: "review_failed", message: /max_tokens/ });
+  assert.equal(bodies.length, 1);
+});
+
+test("over 25 pages is refused before any model call", async () => {
+  const { doc } = tagFixture("text-simple");
+  for (let i = 0; i < 25; i++) doc.insertPage(-1, doc.addPage([0, 0, 612, 792], 0, {}, ""));
+  const { bodies, send } = stub(reply([]));
+  await assert.rejects(review(doc.saveToBuffer("").asUint8Array(), { send }), { code: "too_many_pages" });
+  assert.equal(bodies.length, 0);
+});
+
+test("a structure tree with no text this tool can read is refused", async () => {
+  const { doc } = tagFixture("text-simple");
+  doc.getTrailer().get("Root", "StructTreeRoot").put("K", doc.newArray());
+  await assert.rejects(review(doc.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "no_readable_structure" });
+});
+
+test("a root /K array is read", () => {
+  const { doc } = tagFixture("text-simple");
+  const str = doc.getTrailer().get("Root", "StructTreeRoot");
+  const kids = doc.newArray();
+  str.get("K").get("K").forEach((k) => { kids.push(k); });
+  str.put("K", kids);
+  assert.match(pageOutline(structTree(doc), 0), /^P /m);
+});
+
+test("a cyclic structure tree is read once; one nested too deep is refused", () => {
+  const { doc } = tagFixture("text-simple");
+  const top = doc.getTrailer().get("Root", "StructTreeRoot", "K");
+  top.get("K").get(0).put("K", top); // a cycle back to the top element
+  const root = structTree(doc);
+  assert.deepEqual(root.kids[0].kids, []);
+  assert.equal(root.kids.length, top.get("K").length);
+  let deep = doc.addObject(doc.newDictionary());
+  deep.put("S", doc.newName("P"));
+  for (let i = 0; i < 70; i++) {
+    const up = doc.addObject(doc.newDictionary());
+    up.put("S", doc.newName("Div"));
+    up.put("K", deep);
+    deep = up;
+  }
+  doc.getTrailer().get("Root", "StructTreeRoot").put("K", deep);
+  assert.throws(() => structTree(doc), { code: "bad_structure" });
+});
+
+test("/ToUnicode ranges over 256 codes and invalid code points are skipped", () => {
+  const doc = new mupdf.PDFDocument();
+  const cmap = "beginbfrange <0000> <FFFFFFFF> <0041> <0001> <0002> <0041> <0003> <0003> <110000> endbfrange beginbfchar <0004> <D800> endbfchar";
+  const font = doc.addObject(doc.newDictionary());
+  font.put("ToUnicode", doc.addStream(cmap, {}));
+  const page = doc.addPage([0, 0, 100, 100], 0, doc.newDictionary(), "<</MCID 0>> BDC /F1 12 Tf <0001000200030004> Tj EMC");
+  page.get("Resources").put("Font", doc.newDictionary()).put("F1", font);
+  assert.equal(mcidText(page).get(0), "AB\ufffd");
 });

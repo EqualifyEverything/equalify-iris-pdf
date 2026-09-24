@@ -7,8 +7,8 @@ import { execFile } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openPdf } from "../pdf/document.ts";
-import { structTree } from "../pdf/read.ts";
+import { openPdf, MAX_PAGES } from "../pdf/document.ts";
+import { structTree, readingOrder } from "../pdf/read.ts";
 import { pageOutline, headingsBefore } from "./outline.ts";
 import { IrisPdfError, EXIT, VERSION } from "../report.ts";
 
@@ -83,25 +83,30 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
   const send = opts.send ?? (provider === "anthropic" ? anthropic : bedrock);
   const { doc } = openPdf(pdf, { password: opts.password, readOnly: true });
   if (doc.getTrailer().get("Root", "StructTreeRoot").isNull()) throw new IrisPdfError("not_tagged", "The PDF is not tagged. Run iris-pdf tag first.", EXIT.badInput);
+  const pages = doc.countPages();
+  if (pages > MAX_PAGES) throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
   const root = structTree(doc);
+  if (!readingOrder(root)) throw new IrisPdfError("no_readable_structure", "The structure tree has no text this tool can read. Only PDFs tagged by iris-pdf can be reviewed.", EXIT.badInput);
   const lang = doc.getTrailer().get("Root", "Lang"), title = doc.getMetaData("info:Title");
   const about = `Document language: ${lang.isString() ? lang.asString() : "(none)"}. Title: ${title ? JSON.stringify(title) : "(none)"}.`;
-  // Rendering and outlines first: mupdf objects are not used across awaits.
-  const requests = Array.from({ length: doc.countPages() }, (_, i) => {
+  // Each page is rendered when its worker reaches it, so only a few images are held at once.
+  const build = (i: number) => {
     const before = headingsBefore(root, i);
     return request(model, image(doc.loadPage(i)), [about, before.length ? `Headings on earlier pages:\n${before.join("\n")}` : "", `This page:\n${pageOutline(root, i) || "(no tagged content)"}`].filter(Boolean).join("\n\n"));
-  });
+  };
   const report: ReviewReport = { tool: `iris-pdf ${VERSION}`, provider, model, pages: [], usage: { inputTokens: 0, outputTokens: 0 }, estimatedCostUsd: null };
   let next = 0;
   const worker = async () => {
-    for (let i = next++; i < requests.length; i = next++) {
-      let res = await ask(requests[i]);
+    for (let i = next++; i < pages; i = next++) {
+      const req = build(i);
+      let res = await ask(req);
       // With tool_choice auto a model can answer in text instead; ask once more.
-      if (!reported(res)) {
-        const said = (res as Reply).content ?? [];
-        const messages = [...(requests[i].messages as unknown[]), ...(said.length ? [{ role: "assistant", content: said }] : []),
+      // Only its text is kept: a tool_use turn would need a tool_result.
+      if (!reported(res) && (res as Reply).stop_reason !== "max_tokens") {
+        const said = ((res as Reply).content ?? []).filter((c) => c.type === "text" && c.text);
+        const messages = [...(req.messages as unknown[]), ...(said.length ? [{ role: "assistant", content: said }] : []),
           { role: "user", content: `Answer by calling ${TOOL}.` }];
-        res = await ask({ ...requests[i], messages });
+        res = await ask({ ...req, messages });
       }
       report.pages[i] = { page: i + 1, findings: findings(res, i + 1) };
     }
@@ -113,7 +118,7 @@ export async function review(pdf: Uint8Array, opts: ReviewOptions = {}): Promise
     report.usage.outputTokens += usage?.output_tokens ?? 0;
     return res;
   };
-  await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 4, requests.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 4, pages) }, worker));
   report.estimatedCostUsd = cost(provider, model, report.usage);
   return report;
 }
@@ -139,12 +144,13 @@ function request(model: string, png: string, reader: string): Record<string, unk
 }
 
 type Reply = {
-  content?: { type: string; name?: string; input?: { findings?: unknown } }[];
+  content?: { type: string; text?: string; name?: string; input?: { findings?: unknown } }[];
   stop_reason?: string;
   usage?: { input_tokens?: number; output_tokens?: number };
 };
 
-const reported = (res: unknown) => Array.isArray((res as Reply).content?.find((c) => c.type === "tool_use" && c.name === TOOL)?.input?.findings);
+// A reply cut off at max_tokens may hold a partial list, so it does not count.
+const reported = (res: unknown) => (res as Reply).stop_reason !== "max_tokens" && Array.isArray((res as Reply).content?.find((c) => c.type === "tool_use" && c.name === TOOL)?.input?.findings);
 
 function findings(res: unknown, page: number): Finding[] {
   if (!reported(res)) {
