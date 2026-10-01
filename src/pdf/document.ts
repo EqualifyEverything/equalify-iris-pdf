@@ -72,6 +72,13 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   return source;
 }
 
+// Marks an annotation /Contents that this tool wrote, so a retag can tell it from the author's.
+const DESCRIBED = "IrisPdfContents";
+export function describe(doc: mupdf.PDFDocument, annot: mupdf.PDFObject, text: string) {
+  annot.put("Contents", doc.newString(text));
+  annot.put(DESCRIBED, true);
+}
+
 // Drop the structure tree and what points into it. A page we tagged gets its
 // original content back, so retagging our own output does not stack overlays.
 function untag(doc: mupdf.PDFDocument): boolean {
@@ -80,7 +87,12 @@ function untag(doc: mupdf.PDFDocument): boolean {
   for (let i = 0; i < doc.countPages(); i++) {
     const page = doc.findPage(i), contents = page.get("Contents");
     page.delete("StructParents");
-    page.get("Annots").forEach((a) => { if (a.isDictionary()) a.delete("StructParent"); });
+    page.get("Annots").forEach((a) => {
+      if (!a.isDictionary()) return;
+      a.delete("StructParent");
+      // A description we wrote is rewritten from the new HTML; the author's stays.
+      if (a.get(DESCRIBED).isBoolean()) { a.delete("Contents"); a.delete(DESCRIBED); }
+    });
     if (!contents.isArray() || contents.length < 4) continue;
     const body = (j: number) => { try { return contents.get(j).readStream().asString(); } catch { return null; } };
     if (body(0) !== "/Artifact BMC q\n" || body(contents.length - 2) !== "\nQ EMC\n") continue;

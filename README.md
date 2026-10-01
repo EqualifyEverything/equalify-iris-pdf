@@ -39,7 +39,7 @@ iris-pdf review --pdf out.pdf [--report review.json]   # optional AI review, bel
 | `--flatten` | Draw the field values into the page and remove the fields. |
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
-| `--retag` | Tag a PDF that is already tagged, replacing its tags. Without it, such a PDF is refused with `already_tagged`. |
+| `--retag` | Tag a PDF that is already tagged, replacing its tags. Without it, such a PDF is refused with `already_tagged`. The output is an update of the input, so each retag adds to the file's size. |
 | `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
 | `--strict` | Fail on any warning that means content went untagged or unmatched, or that the file was `repaired`. |
 

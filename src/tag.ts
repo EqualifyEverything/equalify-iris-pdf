@@ -1,7 +1,7 @@
 // tag(): the original PDF plus Iris's HTML -> the same PDF, tagged, with any
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
-import { inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
+import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
 import { artifactStreams, drawsNothing, Overlay, pagesWithMcids } from "./pdf/content.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
@@ -234,7 +234,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     const generic = !l.obj.get("Contents").isString() && !under && !l.uri;
     const elem = ctx.struct.add(ctx.struct.top, "Link", generic && !ctx.lang.startsWith("en") ? { Lang: ctx.doc.newString("en") } : {});
     ctx.struct.objr(elem, pageObj, l.obj);
-    if (l.obj.get("Contents").isNull()) l.obj.put("Contents", ctx.doc.newString(under || l.uri || "Link to another part of this document"));
+    if (l.obj.get("Contents").isNull()) describe(ctx.doc, l.obj, under || l.uri || "Link to another part of this document");
     warn({ code: "unmatched_link", detail: l.uri || "internal link" });
   }
   for (const w of ctx.widgets.filter((w) => !w.used && !ctx.flatten)) {
@@ -325,7 +325,7 @@ function linkAnnotation(n: Node, elem: mupdf.PDFObject, e: Emitter) {
   link.used = true;
   e.struct.objr(elem, e.pageObj, link.obj);
   const text = n.kids.flatMap((k) => (isRun(k) ? k.words.map((w) => w.text) : [])).join(" ");
-  if (link.obj.get("Contents").isNull() && text) link.obj.put("Contents", e.doc.newString(text));
+  if (link.obj.get("Contents").isNull() && text) describe(e.doc, link.obj, text);
 }
 
 // An <input>: a Form element owning its widgets, which get the label as /TU.

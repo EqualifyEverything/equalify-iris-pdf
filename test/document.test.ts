@@ -97,7 +97,30 @@ test("--retag drops a foreign tag tree and what points into it", () => {
   const page = doc.findPage(0);
   assert.ok(page.get("StructParents").isNull());
   assert.ok(page.get("Annots").get(0).get("StructParent").isNull());
-  assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K").length, 0, "a new, empty tree");
+  assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K", "S").asName(), "Document", "a new tree");
+});
+
+test("--retag rewrites link descriptions we wrote, and keeps the author's", () => {
+  const html = (a: string) => ({ ...pagesOf("links"), pages: [{ sourcePage: 1, html: `<h1>Contact</h1><p>Apply online at ${a}.</p>` }] });
+  const contents = (pdf: Uint8Array) => new mupdf.PDFDocument(pdf).findPage(0).get("Annots").get(0).get("Contents").asString();
+  const once = tag(readFixture("links.pdf"), pagesOf("links"));
+  assert.equal(contents(once), "the city website");
+  assert.equal(contents(tag(once, html(`the city <a href="https://example.org/permits">website</a>`), { retag: true })), "website");
+  const authored = new mupdf.PDFDocument(readFixture("links.pdf"));
+  authored.findPage(0).get("Annots").get(0).put("Contents", authored.newString("Permits"));
+  const own = tag(tag(authored.saveToBuffer("").asUint8Array().slice(), pagesOf("links")), html(`the city <a href="https://example.org/permits">website</a>`), { retag: true });
+  assert.equal(contents(own), "Permits");
+});
+
+test("--retag on a foreign tagged PDF keeps its marked content, so it claims no PDF/UA", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const page = doc.findPage(0);
+  page.put("Contents", doc.addStream("/P <</MCID 0>> BDC " + page.get("Contents").readStream().asString() + " EMC", {}));
+  doc.getTrailer().get("Root").put("StructTreeRoot", doc.addObject({ Type: "StructTreeRoot" }));
+  const report = newReport();
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), { retag: true }, report));
+  assert.deepEqual(["retagged", "source_marked_content"].map((c) => report.warnings.some((w) => w.code === c)), [true, true]);
+  assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
 
 test("XFA: a dynamic form is refused, a hybrid form loses only its XFA", () => {
