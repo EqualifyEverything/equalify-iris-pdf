@@ -38,6 +38,8 @@ const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
   const src = openPdf(pdf, opts);
   const { doc } = src;
+  // The old overlay's text is gone on purpose, so the checks compare against the source without it.
+  const baseline = src.restored ? save(doc, true) : pdf;
   const warn = (w: Warning) => report.warnings.push(w);
   src.warnings.forEach(warn);
   const pageCount = doc.countPages();
@@ -117,7 +119,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
-  if (opts.verify !== false) verify(pdf, out, opts, filled.changed, overlayText, report);
+  if (opts.verify !== false) verify(baseline, out, opts, filled.changed, overlayText, report);
   const strict = report.warnings.filter((w) => STRICT.includes(w.code));
   if (opts.strict && strict.length) {
     throw new IrisPdfError("strict", `--strict: ${[...new Set(strict.map((w) => w.code))].join(", ")}`);

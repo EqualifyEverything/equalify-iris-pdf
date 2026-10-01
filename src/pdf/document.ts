@@ -11,12 +11,14 @@ export type Source = {
   acroform: boolean;
   xfa: boolean;
   repaired: boolean; // damaged: saved as a full rewrite, not an update
+  restored: boolean; // retagging our own output: pages got their original content back
   warnings: Warning[];
 };
 
 // readOnly: only reading (listing fields), so the refusals that protect the
 // file from changes do not apply.
-export type OpenOptions = { password?: string; allowSigned?: boolean; readOnly?: boolean };
+// retag: replace the tags of a PDF that has them.
+export type OpenOptions = { password?: string; allowSigned?: boolean; retag?: boolean; readOnly?: boolean };
 
 export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   let doc: mupdf.PDFDocument;
@@ -39,7 +41,7 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
     if (inherited(field, "FT")?.asName() === "Sig" && inherited(field, "V")) signed = true;
   });
   const repaired = doc.wasRepaired() || !doc.canBeSavedIncrementally();
-  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, warnings };
+  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, restored: false, warnings };
   if (opts.readOnly) return source;
 
   // An owner password can forbid changes. We do not work around it.
@@ -54,7 +56,9 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
     throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
   }
   if (!root.get("StructTreeRoot").isNull()) {
-    throw new IrisPdfError("already_tagged", "The PDF is already tagged. Retagging it is not supported.");
+    if (!opts.retag) throw new IrisPdfError("already_tagged", "The PDF is already tagged. Pass --retag to replace its tags.");
+    source.restored = untag(doc);
+    warnings.push({ code: "retagged", detail: "The PDF's existing tags were removed and replaced." });
   }
   // Dynamic XFA draws the form when it opens; its pages are not in the file.
   if (xfa && root.get("NeedsRendering").valueOf() === true) {
@@ -66,6 +70,26 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   if (signed) warnings.push({ code: "signature_invalidated", detail: "The PDF was signed; the signature is now invalid." });
 
   return source;
+}
+
+// Drop the structure tree and what points into it. A page we tagged gets its
+// original content back, so retagging our own output does not stack overlays.
+function untag(doc: mupdf.PDFDocument): boolean {
+  let restored = false;
+  doc.getTrailer().get("Root").delete("StructTreeRoot");
+  for (let i = 0; i < doc.countPages(); i++) {
+    const page = doc.findPage(i), contents = page.get("Contents");
+    page.delete("StructParents");
+    page.get("Annots").forEach((a) => { if (a.isDictionary()) a.delete("StructParent"); });
+    if (!contents.isArray() || contents.length < 4) continue;
+    const body = (j: number) => { try { return contents.get(j).readStream().asString(); } catch { return null; } };
+    if (body(0) !== "/Artifact BMC q\n" || body(contents.length - 2) !== "\nQ EMC\n") continue;
+    const original: mupdf.PDFObject[] = [];
+    for (let j = 1; j < contents.length - 2; j++) original.push(contents.get(j));
+    page.put("Contents", original);
+    restored = true;
+  }
+  return restored;
 }
 
 // Every terminal field in the AcroForm tree.
