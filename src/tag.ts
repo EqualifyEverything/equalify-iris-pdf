@@ -30,7 +30,6 @@ export type TagOptions = OpenOptions & {
   partial?: boolean;
 };
 
-
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
   const src = openPdf(pdf, opts);
