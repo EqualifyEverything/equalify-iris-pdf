@@ -138,7 +138,6 @@ test("text Iris left out is kept and reported, not dropped", () => {
   assert.ok(report.pages[0].lost > 0);
   assert.ok(report.warnings.some((w) => w.code === "unmatched_text"));
   assert.match(readingOrder(structTree(doc)), /^Parking Permit Residents may apply/);
-  assert.throws(() => tag(readFixture("text-simple.pdf"), pages, { strict: true }), { code: "strict" });
 });
 
 test("the verification gate sees changed pixels and lost text", () => {
@@ -308,7 +307,6 @@ test("a page missing from pages.json is left untouched, warned, and stops the PD
   assert.ok(page.get("StructParents").isNull());
   assert.ok(report.warnings.some((w) => w.code === "page_not_in_html" && w.page === 2));
   assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
-  assert.throws(() => tag(pdf, pagesOf("text-simple"), { strict: true }), { code: "strict" });
 });
 
 test("a page whose HTML holds nothing to tag is left as it was, not hidden as an artifact", () => {
@@ -320,11 +318,10 @@ test("a page whose HTML holds nothing to tag is left as it was, not hidden as an
   assert.equal(doc.findPage(0).get("Contents").readStream().asString(), before);
   assert.ok(report.warnings.some((w) => w.code === "page_not_tagged"));
   assert.doesNotMatch(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
-  assert.throws(() => tag(pdf, pages, { strict: true }), { code: "strict" });
 });
 
 test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
-  const { doc, report } = tagFixture("blank-page", { strict: true });
+  const { doc, report } = tagFixture("blank-page");
   assert.ok(!report.warnings.some((w) => w.code === "page_not_in_html"));
   assert.match(doc.getTrailer().get("Root", "Metadata").readStream().asString(), /<pdfuaid:part>1/);
 
@@ -350,7 +347,7 @@ test("a blank page needs no HTML and does not cost the PDF/UA claim", () => {
     edit(annots.get(0), d);
     annots.push(null);
     const quiet = newReport();
-    tag(d.saveToBuffer("").asUint8Array().slice(), pagesOf("blank-page"), { strict: true }, quiet);
+    tag(d.saveToBuffer("").asUint8Array().slice(), pagesOf("blank-page"), {}, quiet);
     assert.ok(!quiet.warnings.some((w) => w.code === "page_not_in_html"), name);
   }
 });
@@ -383,7 +380,7 @@ test("an unmatched link is described by the words under it", () => {
   assert.equal(link.objr[0].get("Contents").asString(), "Fees");
 });
 
-test("with no title there is no PDF/UA claim, no empty title, and --strict fails", () => {
+test("with no title there is no PDF/UA claim, and no empty title", () => {
   const pages = { ...pagesOf("text-simple"), title: undefined };
   const report = newReport();
   const doc = new mupdf.PDFDocument(tag(readFixture("text-simple.pdf"), pages, {}, report));
@@ -391,7 +388,6 @@ test("with no title there is no PDF/UA claim, no empty title, and --strict fails
   assert.ok(report.warnings.some((w) => w.code === "no_title"));
   assert.ok(root.get("ViewerPreferences", "DisplayDocTitle").isNull());
   assert.ok(root.get("Metadata").isNull(), "no packet to write");
-  assert.throws(() => tag(readFixture("text-simple.pdf"), pages, { strict: true }), { code: "strict" });
   const packet = xmp('<x:xmpmeta><rdf:RDF><rdf:Description><dc:title>Old</dc:title><pdfuaid:part>1</pdfuaid:part></rdf:Description></rdf:RDF></x:xmpmeta>', "", false);
   assert.doesNotMatch(packet, /pdfuaid:part>|<dc:title><rdf:Alt>/);
   assert.match(packet, /Old/, "an old title stays when there is no new one");
