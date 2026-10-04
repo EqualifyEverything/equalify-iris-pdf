@@ -28,11 +28,8 @@ export type TagOptions = OpenOptions & {
   verifyDpi?: number;
   flatten?: boolean;
   partial?: boolean;
-  strict?: boolean;
 };
 
-// With --strict these fail the run instead of only being reported.
-const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph", "missing_alt", "unmapped_element", "field_not_in_html", "field_not_in_pdf", "unmatched_link", "alignment_incomplete", "page_not_tagged", "repaired"];
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
@@ -121,10 +118,6 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
   if (opts.verify !== false) verify(pdf, baseline, out, opts, filled.changed, overlayText, report);
-  const strict = report.warnings.filter((w) => STRICT.includes(w.code));
-  if (opts.strict && strict.length) {
-    throw new IrisPdfError("strict", `--strict: ${[...new Set(strict.map((w) => w.code))].join(", ")}`);
-  }
   return out;
 }
 

@@ -40,7 +40,6 @@ iris-pdf review --pdf out.pdf [--report review.json]   # optional AI review, bel
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
 | `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
-| `--strict` | Fail on any warning that means content went untagged or unmatched, or that the file was `repaired`. |
 
 ### pages.json
 
@@ -92,7 +91,7 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed on a page). |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`. From `review`: `review_failed` (the model or its API failed on a page). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 
