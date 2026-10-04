@@ -39,7 +39,6 @@ iris-pdf review --pdf out.pdf [--report review.json]   # optional AI review, bel
 | `--flatten` | Draw the field values into the page and remove the fields. |
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
-| `--retag` | Tag a PDF that is already tagged, replacing its tags. Without it, such a PDF is refused with `already_tagged`. The output is an update of the input, so each retag adds to the file's size. |
 | `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
 | `--strict` | Fail on any warning that means content went untagged or unmatched, or that the file was `repaired`. |
 
@@ -64,7 +63,7 @@ Text fields take strings, checkboxes `true`/`false`, radio groups and lists one 
 
 ## How it works
 
-1. The page's original drawing is kept byte for byte and marked as an artifact.
+1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
 2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan).
 3. An invisible text layer is added with Iris's words at those positions, tagged with the structure from the HTML: headings, lists, tables with their headers, links, figures with alt text, form fields.
 4. The file is saved incrementally: the original bytes are the start of the output. A damaged file is instead rewritten from mupdf's repair of it, with warning `repaired`.
@@ -93,7 +92,7 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `already_tagged` (see `--retag`), `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed on a page). |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`, `strict`. From `review`: `review_failed` (the model or its API failed on a page). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 

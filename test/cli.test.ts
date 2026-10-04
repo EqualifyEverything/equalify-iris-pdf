@@ -34,15 +34,14 @@ test("a refusal exits 1, writes no PDF, and still writes the report", () => {
   assert.equal(JSON.parse(readFileSync(report, "utf8")).error.code, "signed");
 });
 
-test("a tagged PDF is refused as already_tagged, and --retag tags it", () => {
+test("a tagged PDF is retagged, and --retag is still accepted", () => {
   const once = join(dir, "once.pdf"), twice = join(dir, "twice.pdf");
   assert.equal(run(...tagArgs("text-simple", once)).code, 0);
   const again = ["tag", "--pdf", once, "--pages", fixture("text-simple.pages.json"), "--out", twice];
-  const r = run(...again);
-  assert.equal(r.code, 1);
-  assert.match(r.err, /^iris-pdf: already_tagged: .*--retag/);
+  assert.equal(run(...again).code, 0);
+  const plain = readFileSync(twice);
   assert.equal(run(...again, "--retag").code, 0);
-  assert.ok(existsSync(twice));
+  assert.ok(readFileSync(twice).equals(plain), "--retag changes nothing");
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {

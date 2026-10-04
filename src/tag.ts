@@ -38,7 +38,8 @@ const STRICT = ["no_title", "page_not_in_html", "unmatched_text", "missing_glyph
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
   const src = openPdf(pdf, opts);
   const { doc } = src;
-  // The old overlay's text is gone on purpose, so the checks compare against the source without it.
+  // The old overlay's text is gone on purpose, so the text check compares against the source without it.
+  // Pixels compare against the input itself: the restore must not change a pixel.
   const baseline = src.restored ? save(doc, true) : pdf;
   const warn = (w: Warning) => report.warnings.push(w);
   src.warnings.forEach(warn);
@@ -119,7 +120,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
-  if (opts.verify !== false) verify(baseline, out, opts, filled.changed, overlayText, report);
+  if (opts.verify !== false) verify(pdf, baseline, out, opts, filled.changed, overlayText, report);
   const strict = report.warnings.filter((w) => STRICT.includes(w.code));
   if (opts.strict && strict.length) {
     throw new IrisPdfError("strict", `--strict: ${[...new Set(strict.map((w) => w.code))].join(", ")}`);
@@ -431,15 +432,15 @@ function pagesByIndex(input: PagesInput, pageCount: number): Map<number, string>
   return out;
 }
 
-function verify(pdf: Uint8Array, out: Uint8Array, opts: TagOptions, changed: Map<number, Box[]>, added: Map<number, string>, report: Report) {
+function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: TagOptions, changed: Map<number, Box[]>, added: Map<number, string>, report: Report) {
   const open = (b: Uint8Array) => {
     const d = new mupdf.PDFDocument(b);
     if (d.needsPassword()) d.authenticatePassword(opts.password ?? "");
     return d;
   };
-  const before = open(pdf), after = open(out);
-  const pixels = comparePixels(before, after, opts.verifyDpi ?? 150, changed);
-  const text = compareText(before, after, added);
+  const after = open(out);
+  const pixels = comparePixels(open(pdf), after, opts.verifyDpi ?? 150, changed);
+  const text = compareText(open(baseline), after, added);
   report.verification = {
     pixels: pixels.length ? "failed" : "identical-outside-fields",
     differingPixels: pixels.reduce((s, f) => s + f.differing, 0),

@@ -72,11 +72,10 @@ test("--allow-signed tags a signed PDF and says the signature is gone", () => {
   assert.equal(report.source.signed, true);
 });
 
-test("refuses a PDF that is already tagged, and retags it when asked", () => {
+test("retags a PDF that is already tagged", () => {
   const first = tagFixture("text-simple");
-  assert.deepEqual([refusal(first.out).code, refusal(first.out).message], ["already_tagged", "The PDF is already tagged. Pass --retag to replace its tags."]);
   const report = newReport();
-  const doc = new mupdf.PDFDocument(tag(first.out, simple, { retag: true }, report));
+  const doc = new mupdf.PDFDocument(tag(first.out, simple, {}, report));
   assert.ok(report.warnings.some((w) => w.code === "retagged"));
   // Our own output gets its original content back: one overlay, not two, and the same tags.
   assert.ok(!report.warnings.some((w) => w.code === "source_marked_content"));
@@ -86,39 +85,39 @@ test("refuses a PDF that is already tagged, and retags it when asked", () => {
   assert.equal(report.verification.differingPixels, 0);
 });
 
-test("--retag drops a foreign tag tree and what points into it", () => {
+test("retagging drops a foreign tag tree and what points into it", () => {
   const pdf = blankPdf(1, (doc) => {
     const page = doc.findPage(0);
     doc.getTrailer().get("Root").put("StructTreeRoot", doc.addObject({ Type: "StructTreeRoot", K: [] }));
     page.put("StructParents", 0);
     page.put("Annots", [doc.addObject({ Type: "Annot", Subtype: "Text", Rect: [0, 0, 10, 10], StructParent: 1 })]);
   });
-  const doc = new mupdf.PDFDocument(tag(pdf, { lang: "en", pages: [] }, { retag: true }));
+  const doc = new mupdf.PDFDocument(tag(pdf, { lang: "en", pages: [] }));
   const page = doc.findPage(0);
   assert.ok(page.get("StructParents").isNull());
   assert.ok(page.get("Annots").get(0).get("StructParent").isNull());
   assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K", "S").asName(), "Document", "a new tree");
 });
 
-test("--retag rewrites link descriptions we wrote, and keeps the author's", () => {
+test("retagging rewrites link descriptions we wrote, and keeps the author's", () => {
   const html = (a: string) => ({ ...pagesOf("links"), pages: [{ sourcePage: 1, html: `<h1>Contact</h1><p>Apply online at ${a}.</p>` }] });
   const contents = (pdf: Uint8Array) => new mupdf.PDFDocument(pdf).findPage(0).get("Annots").get(0).get("Contents").asString();
   const once = tag(readFixture("links.pdf"), pagesOf("links"));
   assert.equal(contents(once), "the city website");
-  assert.equal(contents(tag(once, html(`the city <a href="https://example.org/permits">website</a>`), { retag: true })), "website");
+  assert.equal(contents(tag(once, html(`the city <a href="https://example.org/permits">website</a>`))), "website");
   const authored = new mupdf.PDFDocument(readFixture("links.pdf"));
   authored.findPage(0).get("Annots").get(0).put("Contents", authored.newString("Permits"));
-  const own = tag(tag(authored.saveToBuffer("").asUint8Array().slice(), pagesOf("links")), html(`the city <a href="https://example.org/permits">website</a>`), { retag: true });
+  const own = tag(tag(authored.saveToBuffer("").asUint8Array().slice(), pagesOf("links")), html(`the city <a href="https://example.org/permits">website</a>`));
   assert.equal(contents(own), "Permits");
 });
 
-test("--retag on a foreign tagged PDF keeps its marked content, so it claims no PDF/UA", () => {
+test("retagging a foreign tagged PDF keeps its marked content, so it claims no PDF/UA", () => {
   const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const page = doc.findPage(0);
   page.put("Contents", doc.addStream("/P <</MCID 0>> BDC " + page.get("Contents").readStream().asString() + " EMC", {}));
   doc.getTrailer().get("Root").put("StructTreeRoot", doc.addObject({ Type: "StructTreeRoot" }));
   const report = newReport();
-  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), { retag: true }, report));
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
   assert.deepEqual(["retagged", "source_marked_content"].map((c) => report.warnings.some((w) => w.code === c)), [true, true]);
   assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
