@@ -58,12 +58,13 @@ test("with Tesseract missing or failing, a scan is still tagged, its words place
 
 test("approximately placed blocks do not run together, nested or not", () => {
   const pages = join(dir, "nested.json"), out = join(dir, "nested.pdf");
-  const html = "<main><h1>Fees</h1><ul><li>One <a href='https://example.com'>link</a></li><li>Two</li></ul><table><tr><th>Year</th><td>2024</td></tr></table></main>";
+  const html = "<main><h1>Fees</h1><ul><li>One <a href='https://example.com'>link</a></li><li>Two</li></ul><table><tr><th>Year</th><td>2024</td></tr></table>" +
+    "<p>See <a href='https://example.com'>the form</a> for <code>tag</code>.</p><dl><dt>Permit</dt><dd>A paper.</dd></dl></main>";
   writeFileSync(pages, JSON.stringify({ lang: "en", title: "Fees", pages: [{ sourcePage: 1, html }] }));
   const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", pages, "--out", out], { encoding: "utf8", env: { PATH: "" } });
   assert.equal(r.status, 0, r.stderr);
   const lines = new mupdf.PDFDocument(readFileSync(out)).loadPage(0).toStructuredText("").asText().split("\n").filter(Boolean);
-  assert.deepEqual(lines, ["Fees", "• One link", "• Two", "Year", "2024"]);
+  assert.deepEqual(lines, ["Fees", "• One link", "• Two", "Year", "2024", "See the form for tag.", "Permit A paper."]);
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {

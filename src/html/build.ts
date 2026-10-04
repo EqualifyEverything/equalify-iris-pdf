@@ -214,6 +214,7 @@ function tableHeaders(table: Node, prefix: string) {
 
 function addText(parent: Node, text: string) {
   const words = splitWords(text).map((w) => ({ ...word(w.text), space: w.space }));
+  if (/^\s/.test(text)) { const w = lastWord(parent); if (w) w.space = true; } // "<a>form</a> for"
   if (!words.length) return;
   const last = parent.kids.at(-1);
   if (last && isRun(last)) last.words.push(...words);
@@ -221,6 +222,7 @@ function addText(parent: Node, text: string) {
 }
 
 const word = (text: string): Word => ({ text, norm: normalize(text) });
+const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
 function walk(e: Elem, fn: (e: Elem) => void) {
@@ -237,6 +239,7 @@ export function wordsInOrder(top: Node): { word: Word; block: number; newLine: b
   const visit = (n: Node | Run, block: number) => {
     if (isRun(n)) return n.words.forEach((word) => (out.push({ word, block, newLine }), (newLine = false)));
     if (!INLINE.has(n.type)) newLine = true;
+    else if (n.type === "LBody" && out.length) out.at(-1)!.word.space = true; // after its label
     n.kids.forEach((k) => visit(k, block));
     if (!INLINE.has(n.type)) newLine = true;
   };
