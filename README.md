@@ -8,7 +8,7 @@ Tagging runs offline and makes no network or model calls. An optional `review` a
 
 ## Install
 
-Node 24 or later. Tesseract 5 is optional; it is needed only for scanned pages.
+Node 24 or later. Tesseract 5 is optional. It places a scan's text over its image; without it, a scan is still tagged, its text placed approximately.
 
 ```sh
 git clone https://github.com/EqualifyEverything/equalify-iris-pdf && cd equalify-iris-pdf
@@ -60,7 +60,7 @@ Text fields take strings, checkboxes `true`/`false`, radio groups and lists one 
 ## How it works
 
 1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
-2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan).
+2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan). With neither, the words flow down the page in reading order.
 3. An invisible text layer is added with Iris's words at those positions, tagged with the structure from the HTML: headings, lists, tables with their headers, links, figures with alt text, form fields.
 4. The file is saved incrementally: the original bytes are the start of the output. A damaged file is instead rewritten from mupdf's repair of it, with warning `repaired`.
 
@@ -73,7 +73,7 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
 ## Review
 

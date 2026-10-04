@@ -143,6 +143,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
   }
   const type = STRUCT[e.tag];
   if (!type) ctx.warn({ code: "unmapped_element", detail: e.tag });
+  if (type === "LBody") { const w = lastWord(parent); if (w) w.space = true; } // after its <dt>
   kids(add(type ?? "P"), inner);
 }
 
@@ -214,6 +215,7 @@ function tableHeaders(table: Node, prefix: string) {
 
 function addText(parent: Node, text: string) {
   const words = splitWords(text).map((w) => ({ ...word(w.text), space: w.space }));
+  if (/^\s/.test(text)) { const w = lastWord(parent); if (w) w.space = true; } // "<a>form</a> for"
   if (!words.length) return;
   const last = parent.kids.at(-1);
   if (last && isRun(last)) last.words.push(...words);
@@ -221,6 +223,7 @@ function addText(parent: Node, text: string) {
 }
 
 const word = (text: string): Word => ({ text, norm: normalize(text) });
+const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
 function walk(e: Elem, fn: (e: Elem) => void) {
@@ -229,11 +232,16 @@ function walk(e: Elem, fn: (e: Elem) => void) {
 }
 
 // Every word in reading order, each with the index of its top-level block.
-export function wordsInOrder(top: Node): { word: Word; block: number }[] {
-  const out: { word: Word; block: number }[] = [];
+// newLine: the word is the first in, or after, a block element.
+const INLINE = new Set(["Link", "Reference", "Code", "Lbl", "LBody"]);
+export function wordsInOrder(top: Node): { word: Word; block: number; newLine: boolean }[] {
+  const out: { word: Word; block: number; newLine: boolean }[] = [];
+  let newLine = true;
   const visit = (n: Node | Run, block: number) => {
-    if (isRun(n)) n.words.forEach((word) => out.push({ word, block }));
-    else n.kids.forEach((k) => visit(k, block));
+    if (isRun(n)) return n.words.forEach((word) => (out.push({ word, block, newLine }), (newLine = false)));
+    if (!INLINE.has(n.type)) newLine = true;
+    n.kids.forEach((k) => visit(k, block));
+    if (!INLINE.has(n.type)) newLine = true;
   };
   top.kids.forEach((k, i) => visit(k, i));
   return out;

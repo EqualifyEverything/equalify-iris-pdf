@@ -41,7 +41,7 @@ test("a tagged PDF is retagged", () => {
   assert.equal(run(...again).code, 0);
 });
 
-test("with Tesseract missing or failing, a scan is left untagged with a warning", () => {
+test("with Tesseract missing or failing, a scan is still tagged, its words placed approximately", () => {
   const failing = mkdtempSync(join(tmpdir(), "iris-pdf-bin-"));
   writeFileSync(join(failing, "tesseract"), '#!/bin/sh\n[ "$1" = --version ] && exit 0\necho no eng >&2; exit 1\n', { mode: 0o755 });
   for (const [PATH, why] of [["", /not installed/], [failing, /failed: no eng/]] as const) {
@@ -49,9 +49,23 @@ test("with Tesseract missing or failing, a scan is left untagged with a warning"
     const r = spawnSync(process.execPath, [cli, ...tagArgs("mixed", out, "--report", report)], { encoding: "utf8", env: { PATH } });
     assert.equal(r.status, 0, r.stderr);
     const json = JSON.parse(readFileSync(report, "utf8"));
-    assert.deepEqual(json.pages.map((p: { textSource: string }) => p.textSource), ["pdf-text", "none"]);
+    assert.deepEqual(json.pages.map((p: { textSource: string }) => p.textSource), ["pdf-text", "approximate"]);
     assert.ok(json.warnings.some((w: { code: string; page?: number; detail: string }) => w.code === "no_text_positions" && w.page === 2 && why.test(w.detail)));
+    assert.ok(json.pages[1].mcids >= 2);
+    assert.match(new mupdf.PDFDocument(readFileSync(out)).loadPage(1).toStructuredText("").asText(), /Office Address\s+The permit office is on Main Street\./);
   }
+});
+
+test("approximately placed blocks do not run together, nested or not", () => {
+  const pages = join(dir, "nested.json"), out = join(dir, "nested.pdf");
+  const html = "<main><h1>Fees</h1><ul><li>One <a href='https://example.com'>link</a></li><li>Two</li></ul><table><tr><th>Year</th><td>2024</td></tr></table>" +
+    "<p>See <a href='https://example.com'>the form</a> for <code>tag</code>.</p><dl><dt>Permit</dt><dd>A paper.</dd></dl>" +
+    `<p>${"x".repeat(150)}</p></main>`; // wider than the page
+  writeFileSync(pages, JSON.stringify({ lang: "en", title: "Fees", pages: [{ sourcePage: 1, html }] }));
+  const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", pages, "--out", out], { encoding: "utf8", env: { PATH: "" } });
+  assert.equal(r.status, 0, r.stderr);
+  const lines = new mupdf.PDFDocument(readFileSync(out)).loadPage(0).toStructuredText("").asText().split("\n").filter(Boolean);
+  assert.deepEqual(lines, ["Fees", "• One link", "• Two", "Year", "2024", "See the form for tag.", "Permit A paper.", "x".repeat(150)]);
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {

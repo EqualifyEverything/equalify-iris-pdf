@@ -7,7 +7,7 @@ export type Warning = { code: string; page?: number; detail?: string };
 
 export type PageReport = {
   page: number;
-  textSource: "pdf-text" | "ocr" | "none";
+  textSource: "pdf-text" | "ocr" | "approximate" | "none";
   words: number;
   matched: number;
   addedFromHtml: number;
