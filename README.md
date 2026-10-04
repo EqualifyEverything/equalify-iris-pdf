@@ -34,12 +34,9 @@ iris-pdf review --pdf out.pdf [--report review.json]   # optional AI review, bel
 |---|---|
 | `--values values.json` | Fill form fields (below). |
 | `--lang`, `--title` | Used when `pages.json` has none. A language is required. |
-| `--ocr auto\|off\|required` | Use Tesseract for pages with no text layer. Default `auto`. |
-| `--verify pixels,text\|off` | The checks below. On by default. `--verify-dpi` sets the render resolution (36–600, default 150). |
 | `--flatten` | Draw the field values into the page and remove the fields. |
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
-| `--partial` | Leave a page untagged, instead of failing, when it has no way to place text. |
 
 ### pages.json
 
@@ -74,7 +71,9 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## The report
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` and `page_not_tagged` (the page is left as it was; a blank page needs no HTML and is not warned), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
+
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
 ## Review
 
@@ -91,7 +90,7 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`, `no_text_positions`. From `review`: `review_failed` (the model or its API failed on a page). |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied`, `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`. From `review`: `review_failed` (the model or its API failed on a page). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 

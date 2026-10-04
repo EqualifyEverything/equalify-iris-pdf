@@ -23,6 +23,6 @@ globalThis.fetch = blocked;
 
 test("tags every fixture with the network blocked", () => {
   for (const name of ["text-simple", "text-two-column", "links", "form-acroform", "cjk", "blank-page", "mixed", "scan-300dpi"]) {
-    assert.ok(tagFixture(name, { partial: true }).out.length, name); // partial: scans pass without Tesseract too
+    assert.ok(tagFixture(name).out.length, name);
   }
 });

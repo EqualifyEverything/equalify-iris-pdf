@@ -351,7 +351,7 @@ test("an internal link shows its target page, or its named destination", () => {
 
 test("the outline shows merged table cells", () => {
   const html = '<table><tr><th>Zone</th><th colspan="2">Fees</th></tr><tr><td>North</td><td>10</td><td>20</td></tr></table>';
-  const out = tag(readFixture("text-simple.pdf"), { pages: [{ sourcePage: 1, html }], lang: "en" }, { partial: true });
+  const out = tag(readFixture("text-simple.pdf"), { pages: [{ sourcePage: 1, html }], lang: "en" });
   const outline = pageOutline(structTree(mupdf.PDFDocument.openDocument(out, "application/pdf") as mupdf.PDFDocument), 0);
   assert.match(outline, /^ {6}TH ID="p1-th2" Scope=Column ColSpan=2 "Fees"$/m);
 });

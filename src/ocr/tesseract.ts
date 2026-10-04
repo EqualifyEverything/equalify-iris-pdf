@@ -12,13 +12,13 @@ export function tesseractInstalled(): boolean {
   return installed;
 }
 
-// null when Tesseract is not installed.
-export function ocrWords(page: mupdf.PDFPage, lang = "eng"): PageWord[] | null {
-  if (!tesseractInstalled()) return null;
+// A string says why there are no words: Tesseract is missing or failed.
+export function ocrWords(page: mupdf.PDFPage, lang = "eng"): PageWord[] | string {
+  if (!tesseractInstalled()) return "Tesseract is not installed";
   const s = DPI / 72;
   const png = page.toPixmap(mupdf.Matrix.scale(s, s), mupdf.ColorSpace.DeviceGray, false).asPNG();
   const run = spawnSync("tesseract", ["stdin", "stdout", "-l", lang, "tsv"], { input: png, maxBuffer: 64 << 20 });
-  if (run.status !== 0) throw new Error(`tesseract failed: ${run.stderr.toString().trim()}`);
+  if (run.status !== 0) return `Tesseract failed: ${run.stderr?.toString().trim() || run.error?.message || run.signal || `exit ${run.status}`}`;
   return parseTsv(run.stdout.toString(), s);
 }
 

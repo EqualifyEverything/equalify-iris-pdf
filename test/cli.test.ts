@@ -34,14 +34,24 @@ test("a refusal exits 1, writes no PDF, and still writes the report", () => {
   assert.equal(JSON.parse(readFileSync(report, "utf8")).error.code, "signed");
 });
 
-test("a tagged PDF is retagged, and --retag is still accepted", () => {
+test("a tagged PDF is retagged", () => {
   const once = join(dir, "once.pdf"), twice = join(dir, "twice.pdf");
   assert.equal(run(...tagArgs("text-simple", once)).code, 0);
   const again = ["tag", "--pdf", once, "--pages", fixture("text-simple.pages.json"), "--out", twice];
   assert.equal(run(...again).code, 0);
-  const plain = readFileSync(twice);
-  assert.equal(run(...again, "--retag").code, 0);
-  assert.ok(readFileSync(twice).equals(plain), "--retag changes nothing");
+});
+
+test("with Tesseract missing or failing, a scan is left untagged with a warning", () => {
+  const failing = mkdtempSync(join(tmpdir(), "iris-pdf-bin-"));
+  writeFileSync(join(failing, "tesseract"), '#!/bin/sh\n[ "$1" = --version ] && exit 0\necho no eng >&2; exit 1\n', { mode: 0o755 });
+  for (const [PATH, why] of [["", /not installed/], [failing, /failed: no eng/]] as const) {
+    const out = join(dir, "mixed.pdf"), report = join(dir, "mixed.json");
+    const r = spawnSync(process.execPath, [cli, ...tagArgs("mixed", out, "--report", report)], { encoding: "utf8", env: { PATH } });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(readFileSync(report, "utf8"));
+    assert.deepEqual(json.pages.map((p: { textSource: string }) => p.textSource), ["pdf-text", "none"]);
+    assert.ok(json.warnings.some((w: { code: string; page?: number; detail: string }) => w.code === "no_text_positions" && w.page === 2 && why.test(w.detail)));
+  }
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {
@@ -60,8 +70,7 @@ test("a failed verification exits 2 and writes no PDF", () => {
 test("bad arguments and bad values exit 3; values never appear in output", () => {
   assert.equal(run().code, 3);
   assert.equal(run("tag", "--nope").code, 3);
-  assert.equal(run(...tagArgs("text-simple", join(dir, "x.pdf"), "--ocr", "maybe")).code, 3);
-  assert.equal(run(...tagArgs("text-simple", join(dir, "x.pdf"), "--verify-dpi", "5")).code, 3);
+  for (const gone of ["--ocr", "--verify", "--verify-dpi", "--partial", "--retag", "--strict"]) assert.equal(run(...tagArgs("text-simple", join(dir, "x.pdf"), gone)).code, 3, gone);
   assert.equal(run("frobnicate").code, 3);
 
   const secret = "SSN-123-45-6789-" + "x".repeat(30);
