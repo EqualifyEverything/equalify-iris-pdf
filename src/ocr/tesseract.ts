@@ -18,7 +18,7 @@ export function ocrWords(page: mupdf.PDFPage, lang = "eng"): PageWord[] | string
   const s = DPI / 72;
   const png = page.toPixmap(mupdf.Matrix.scale(s, s), mupdf.ColorSpace.DeviceGray, false).asPNG();
   const run = spawnSync("tesseract", ["stdin", "stdout", "-l", lang, "tsv"], { input: png, maxBuffer: 64 << 20 });
-  if (run.status !== 0) return `Tesseract failed: ${run.stderr?.toString().trim() || run.error?.message || `exit ${run.status}`}`;
+  if (run.status !== 0) return `Tesseract failed: ${run.stderr?.toString().trim() || run.error?.message || run.signal || `exit ${run.status}`}`;
   return parseTsv(run.stdout.toString(), s);
 }
 
