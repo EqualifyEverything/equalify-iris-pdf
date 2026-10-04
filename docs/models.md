@@ -65,16 +65,13 @@ On 2026-09-24, through Bedrock `us.` profiles, with the prompt in `src/review/re
 
 The review sends each page's image and its text to the model provider, so do not use it on documents that must not leave your machine.
 
-## The PR reviewer: Opus 5, moving to Opus 5.5
+## The PR reviewer: Opus 5.5
 
-`.github/workflows/code-review.yml` runs Claude Code on Bedrock. Its model is the repository variable `BEDROCK_REVIEW_MODEL`, and defaults to `us.anthropic.claude-opus-5`.
+`.github/workflows/code-review.yml` runs Claude Code on Bedrock. Its model is the repository variable `BEDROCK_REVIEW_MODEL`, and defaults to `us.anthropic.claude-opus-5-5`.
 
-Over its last 18 successful runs, a review cost $0.30 to $2.67, **$1.44 on average**, in 7 to 30 turns taking 1 to 10 minutes. Claude Code reports these figures at list price, so on the `us.` profile add about 10%. Each push to a PR is reviewed again, so a PR that takes several rounds costs several reviews.
+On Opus 5, over 18 successful runs, a review cost $0.30 to $2.67, **$1.44 on average**, in 7 to 30 turns taking 1 to 10 minutes. Opus 5.5's list price is 20% lower, so expect about $1.15. Claude Code reports these figures at list price, so on the `us.` profile add about 10%. Each push to a PR is reviewed again, so a PR that takes several rounds costs several reviews.
 
-**Recommended: Opus 5.5.** It is newer, and its list price is 20% lower, so a review would cost about $1.15 on average. To switch:
-
-1. Add `us.anthropic.claude-opus-5-5` to the review role's Bedrock policy (`equalify-iris-gha-bedrock-review`, policy `bedrock-invoke-opus5`). It needs the inference profile ARN plus the `anthropic.claude-opus-5-5` foundation-model ARNs in its regions, as the policy has for Opus 5.
-2. Set the repository variable `BEDROCK_REVIEW_MODEL` to `us.anthropic.claude-opus-5-5`.
+The review role (`equalify-iris-gha-bedrock-review`, shared with equalify-iris) allows Opus 5 in policy `bedrock-invoke-opus5` and Opus 5.5 in `bedrock-invoke-opus5-5`: the inference profile ARN plus the foundation-model ARNs in its regions. Another model needs the same.
 
 Keep review on an Opus model. Its job is to find what the author missed, and that is where the cheaper models are weakest.
 

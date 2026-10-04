@@ -407,7 +407,7 @@ jobs:
           # display_report unset: it would double-submit alongside `gh pr review`.
           claude_args: >-
             --allowedTools Bash(*),Read(*),Glob,Grep
-            --model ${{ vars.BEDROCK_REVIEW_MODEL || 'us.anthropic.claude-opus-5' }}
+            --model ${{ vars.BEDROCK_REVIEW_MODEL || 'us.anthropic.claude-opus-5-5' }}
           prompt: |
             You are an adversarial code reviewer for **equalify-iris-pdf**, reviewing
             PR #${{ steps.ctx.outputs.pr_number }} (head ${{ steps.ctx.outputs.head_sha }}) in
