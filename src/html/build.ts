@@ -143,6 +143,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
   }
   const type = STRUCT[e.tag];
   if (!type) ctx.warn({ code: "unmapped_element", detail: e.tag });
+  if (type === "LBody") { const w = lastWord(parent); if (w) w.space = true; } // after its <dt>
   kids(add(type ?? "P"), inner);
 }
 
@@ -239,7 +240,6 @@ export function wordsInOrder(top: Node): { word: Word; block: number; newLine: b
   const visit = (n: Node | Run, block: number) => {
     if (isRun(n)) return n.words.forEach((word) => (out.push({ word, block, newLine }), (newLine = false)));
     if (!INLINE.has(n.type)) newLine = true;
-    else if (n.type === "LBody" && out.length) out.at(-1)!.word.space = true; // after its label
     n.kids.forEach((k) => visit(k, block));
     if (!INLINE.has(n.type)) newLine = true;
   };

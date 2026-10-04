@@ -263,7 +263,7 @@ function fillPositions(words: Word[], page: Box, width: (text: string) => number
       let x = prev ? from.box[2] + (prev.space ?? true ? width(" ") * size : 0) : first.box[0];
       let dy = 0;
       if (breaks.has(w) || x + wide > page[2] - 1) {
-        x = breaks.has(w) ? first.box[0] : page[0] + 1;
+        x = breaks.has(w) && first.box[0] + wide <= page[2] - 1 ? first.box[0] : page[0] + 1;
         dy = from.box[3] + line > page[3] ? page[1] + line - from.box[3] : line; // off the bottom: back to the top
       }
       w.at = { size, baseline: from.baseline + dy, box: [x, from.box[1] + dy, x + wide, from.box[3] + dy] };
