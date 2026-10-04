@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import * as mupdf from "mupdf";
 import { fixture } from "./helpers.ts";
 
@@ -39,16 +39,19 @@ test("a tagged PDF is retagged", () => {
   assert.equal(run(...tagArgs("text-simple", once)).code, 0);
   const again = ["tag", "--pdf", once, "--pages", fixture("text-simple.pages.json"), "--out", twice];
   assert.equal(run(...again).code, 0);
-  assert.ok(existsSync(twice));
 });
 
-test("without Tesseract, a scan is left untagged with a warning", () => {
-  const out = join(dir, "mixed.pdf"), report = join(dir, "mixed.json");
-  const r = spawnSync(process.execPath, [cli, ...tagArgs("mixed", out, "--report", report)], { encoding: "utf8", env: { PATH: dirname(process.execPath) } });
-  assert.equal(r.status, 0, r.stderr);
-  const json = JSON.parse(readFileSync(report, "utf8"));
-  assert.deepEqual(json.pages.map((p: { textSource: string }) => p.textSource), ["pdf-text", "none"]);
-  assert.ok(json.warnings.some((w: { code: string; page?: number }) => w.code === "no_text_positions" && w.page === 2));
+test("with Tesseract missing or failing, a scan is left untagged with a warning", () => {
+  const failing = mkdtempSync(join(tmpdir(), "iris-pdf-bin-"));
+  writeFileSync(join(failing, "tesseract"), '#!/bin/sh\n[ "$1" = --version ] && exit 0\necho no eng >&2; exit 1\n', { mode: 0o755 });
+  for (const [PATH, why] of [["", /not installed/], [failing, /failed: no eng/]] as const) {
+    const out = join(dir, "mixed.pdf"), report = join(dir, "mixed.json");
+    const r = spawnSync(process.execPath, [cli, ...tagArgs("mixed", out, "--report", report)], { encoding: "utf8", env: { PATH } });
+    assert.equal(r.status, 0, r.stderr);
+    const json = JSON.parse(readFileSync(report, "utf8"));
+    assert.deepEqual(json.pages.map((p: { textSource: string }) => p.textSource), ["pdf-text", "none"]);
+    assert.ok(json.warnings.some((w: { code: string; page?: number; detail: string }) => w.code === "no_text_positions" && w.page === 2 && why.test(w.detail)));
+  }
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {

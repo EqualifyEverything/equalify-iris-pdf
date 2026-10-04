@@ -151,8 +151,8 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   if (words.length) report.textSource = "pdf-text";
   else if (ordered.length) {
     const ocr = ocrWords(page);
-    if (!ocr) {
-      warn({ code: "no_text_positions", detail: "The page has no text layer and Tesseract is not installed; it was left untagged." });
+    if (typeof ocr === "string") {
+      warn({ code: "no_text_positions", detail: `The page has no text layer and ${ocr}; it was left untagged.` });
       return { report, overlay: null, untagged: true };
     }
     words = ocr;

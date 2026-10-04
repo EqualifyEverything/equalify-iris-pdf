@@ -71,7 +71,9 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## The report
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html`, `page_not_tagged` and `no_text_positions` (a scan, with Tesseract not installed; the page is left as it was; a blank page needs no HTML and is not warned), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
+
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
 ## Review
 
