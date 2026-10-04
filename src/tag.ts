@@ -183,7 +183,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   });
   const bounds = page.getBounds();
   // With no page words, each block starts a new line, so blocks do not run together.
-  const breaks = new Set(words.length ? [] : ordered.filter((o, k) => k && o.block !== ordered[k - 1].block).map((o) => o.word));
+  const breaks = new Set(words.length ? [] : ordered.filter((o, k) => k && o.newLine).map((o) => o.word));
   fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s), breaks);
 
   // Page words Iris left out: furniture, or lost content reported and kept as a P.
@@ -252,7 +252,7 @@ const placed = (w: PageWord): Placed => ({ box: w.box, baseline: w.baseline, siz
 // width, wrapping at the page edge: extractors drop text off the page, and
 // merge repeated letters piled into one spot. With no word before it, it
 // starts at the first placed word, or the page's top left. A word in `breaks` starts a new line.
-function fillPositions(words: Word[], page: Box, width: (text: string) => number, breaks = new Set<Word>()) {
+function fillPositions(words: Word[], page: Box, width: (text: string) => number, breaks: Set<Word>) {
   const fallback: Placed = { box: [page[0] + 10, page[1] + 10, page[0] + 10, page[1] + 20], baseline: page[1] + 20, size: 10 };
   const first = words.find((w) => w.at)?.at ?? fallback;
   let prev: Word | null = null;

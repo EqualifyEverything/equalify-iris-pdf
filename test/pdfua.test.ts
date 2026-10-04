@@ -3,12 +3,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { checkPdfUa } from "../src/verify/pdfua.ts";
-import { tagFixture } from "./helpers.ts";
+import { fixture, tagFixture } from "./helpers.ts";
 
 const noVera = !process.env.IRIS_REQUIRE_VERAPDF && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
 const noOcr = !tesseractInstalled() && "Tesseract is not installed";
@@ -20,6 +20,16 @@ const CORPUS: [string, boolean][] = [
   ["text-simple", false], ["text-two-column", false], ["links", false], ["form-acroform", false], ["cjk", false], ["mixed", false],
 ];
 const SCANS = new Set(["scan-300dpi", "scan-skewed", "mixed"]);
+
+test("a scan tagged without Tesseract claims PDF/UA-1 and passes veraPDF", { skip: noVera }, () => {
+  const path = join(dir, "scan-approx.pdf");
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", fixture("scan-300dpi.pages.json"), "--out", path], { encoding: "utf8", env: { PATH: "" } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);
+  const { passed, message } = checkPdfUa(path);
+  assert.equal(passed, true, message);
+});
 
 for (const [name, conforms] of CORPUS) {
   test(`${name}: ${conforms ? "claims PDF/UA-1 and passes veraPDF" : "does not claim PDF/UA-1"}`, { skip: noVera || (SCANS.has(name) && noOcr) }, () => {

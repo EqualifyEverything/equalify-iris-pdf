@@ -229,11 +229,16 @@ function walk(e: Elem, fn: (e: Elem) => void) {
 }
 
 // Every word in reading order, each with the index of its top-level block.
-export function wordsInOrder(top: Node): { word: Word; block: number }[] {
-  const out: { word: Word; block: number }[] = [];
+// newLine: the word is the first in, or after, a block element.
+const INLINE = new Set(["Link", "Reference", "Code", "Lbl", "LBody"]);
+export function wordsInOrder(top: Node): { word: Word; block: number; newLine: boolean }[] {
+  const out: { word: Word; block: number; newLine: boolean }[] = [];
+  let newLine = true;
   const visit = (n: Node | Run, block: number) => {
-    if (isRun(n)) n.words.forEach((word) => out.push({ word, block }));
-    else n.kids.forEach((k) => visit(k, block));
+    if (isRun(n)) return n.words.forEach((word) => (out.push({ word, block, newLine }), (newLine = false)));
+    if (!INLINE.has(n.type)) newLine = true;
+    n.kids.forEach((k) => visit(k, block));
+    if (!INLINE.has(n.type)) newLine = true;
   };
   top.kids.forEach((k, i) => visit(k, i));
   return out;

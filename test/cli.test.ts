@@ -56,6 +56,16 @@ test("with Tesseract missing or failing, a scan is still tagged, its words place
   }
 });
 
+test("approximately placed blocks do not run together, nested or not", () => {
+  const pages = join(dir, "nested.json"), out = join(dir, "nested.pdf");
+  const html = "<main><h1>Fees</h1><ul><li>One <a href='https://example.com'>link</a></li><li>Two</li></ul><table><tr><th>Year</th><td>2024</td></tr></table></main>";
+  writeFileSync(pages, JSON.stringify({ lang: "en", title: "Fees", pages: [{ sourcePage: 1, html }] }));
+  const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", pages, "--out", out], { encoding: "utf8", env: { PATH: "" } });
+  assert.equal(r.status, 0, r.stderr);
+  const lines = new mupdf.PDFDocument(readFileSync(out)).loadPage(0).toStructuredText("").asText().split("\n").filter(Boolean);
+  assert.deepEqual(lines, ["Fees", "• One link", "• Two", "Year", "2024"]);
+});
+
 test("a failed verification exits 2 and writes no PDF", () => {
   // A stream ending inside a string swallows the overlay (see tag.test.ts).
   const doc = new mupdf.PDFDocument(readFileSync(fixture("text-simple.pdf")));
