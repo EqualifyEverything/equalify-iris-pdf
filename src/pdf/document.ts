@@ -11,14 +11,13 @@ export type Source = {
   acroform: boolean;
   xfa: boolean;
   repaired: boolean; // damaged: saved as a full rewrite, not an update
-  restored: boolean; // retagging our own output: pages got their original content back
+  restored: boolean; // the PDF was our own output: pages got their original content back
   warnings: Warning[];
 };
 
 // readOnly: only reading (listing fields), so the refusals that protect the
 // file from changes do not apply.
-// retag: replace the tags of a PDF that has them.
-export type OpenOptions = { password?: string; allowSigned?: boolean; retag?: boolean; readOnly?: boolean };
+export type OpenOptions = { password?: string; allowSigned?: boolean; readOnly?: boolean };
 
 export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   let doc: mupdf.PDFDocument;
@@ -56,7 +55,7 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
     throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
   }
   if (!root.get("StructTreeRoot").isNull()) {
-    if (!opts.retag) throw new IrisPdfError("already_tagged", "The PDF is already tagged. Pass --retag to replace its tags.");
+    // An already-tagged PDF is retagged: its old tags are replaced.
     source.restored = untag(doc);
     warnings.push({ code: "retagged", detail: "The PDF's existing tags were removed and replaced." });
   }
