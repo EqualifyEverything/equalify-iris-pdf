@@ -11,18 +11,15 @@ const USAGE = `iris-pdf ${VERSION}
 
 iris-pdf tag --pdf <in.pdf> --pages <pages.json> --out <out.pdf>
              [--values <values.json>] [--report <report.json>] [--lang <bcp47>] [--title <text>]
-             [--ocr auto|off|required] [--verify pixels,text|off] [--verify-dpi 150]
-             [--flatten] [--password <pw>] [--allow-signed] [--partial]
+             [--flatten] [--password <pw>] [--allow-signed]
 iris-pdf fields --pdf <in.pdf> [--json] [--password <pw>]
 iris-pdf check --pdf <in.pdf>
 iris-pdf review --pdf <tagged.pdf> [--report <review.json>] [--provider anthropic|bedrock] [--model <id>] [--password <pw>]`;
 
 const OPTIONS = {
   pdf: { type: "string" }, pages: { type: "string" }, values: { type: "string" }, out: { type: "string" },
-  report: { type: "string" }, lang: { type: "string" }, title: { type: "string" }, ocr: { type: "string" },
-  verify: { type: "string" }, "verify-dpi": { type: "string" }, flatten: { type: "boolean" },
-  password: { type: "string" }, "allow-signed": { type: "boolean" }, partial: { type: "boolean" },
-  retag: { type: "boolean" }, // ignored, for older callers: tagging always replaces old tags
+  report: { type: "string" }, lang: { type: "string" }, title: { type: "string" }, flatten: { type: "boolean" },
+  password: { type: "string" }, "allow-signed": { type: "boolean" },
   provider: { type: "string" }, model: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" },
 } as const;
 
@@ -88,18 +85,11 @@ async function main(argv: string[]): Promise<number> {
 
   if (command !== "tag") badArgs(`Unknown command "${command}".\n${USAGE}`);
   if (!args.pages || !args.out) badArgs("tag needs --pdf, --pages and --out.");
-  const ocr = args.ocr ?? "auto";
-  if (!["auto", "off", "required"].includes(ocr)) badArgs("--ocr is auto, off or required.");
-  const verify = args.verify ?? "pixels,text";
-  if (verify !== "off" && verify !== "pixels,text") badArgs("--verify is pixels,text or off.");
-  const dpi = Number(args["verify-dpi"] ?? 150);
-  if (!(dpi >= 36 && dpi <= 600)) badArgs("--verify-dpi is between 36 and 600.");
 
   const opts: TagOptions = {
     values: args.values ? (readJson(args.values, "values") as TagOptions["values"]) : undefined,
-    lang: args.lang, title: args.title, ocr: ocr as TagOptions["ocr"],
-    verify: verify !== "off", verifyDpi: dpi, flatten: args.flatten, password: args.password,
-    allowSigned: args["allow-signed"], partial: args.partial,
+    lang: args.lang, title: args.title, flatten: args.flatten, password: args.password,
+    allowSigned: args["allow-signed"],
   };
   const report = newReport();
   const pdf = readPdf(args.pdf);

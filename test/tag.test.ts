@@ -122,15 +122,6 @@ test("cjk: every character is recoverable through ToUnicode", () => {
   assert.equal(cid.get("CIDToGIDMap").asName(), "Identity");
 });
 
-test("a scan with OCR off is refused, or left untagged with --partial", () => {
-  const pdf = readFixture("mixed.pdf"), pages = pagesOf("mixed");
-  assert.throws(() => tag(pdf, pages, { ocr: "off" }), { code: "no_text_positions" });
-  const report = newReport();
-  tag(pdf, pages, { ocr: "off", partial: true }, report);
-  assert.deepEqual(report.pages.map((p) => p.textSource), ["pdf-text", "none"]);
-  assert.ok(report.warnings.some((w) => w.code === "no_text_positions" && w.page === 2));
-});
-
 test("text Iris left out is kept and reported, not dropped", () => {
   const pages = { lang: "en", pages: [{ sourcePage: 1, html: "<h1>Parking Permit</h1>" }] };
   const report = newReport();

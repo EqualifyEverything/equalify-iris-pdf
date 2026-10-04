@@ -12,7 +12,7 @@ import { buildPage, isRun, wordsInOrder, type Node, type Placed, type Run, type 
 import { joinHyphenated, type Box, type PageWord } from "./align/words.ts";
 import { align, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
-import { ocrWords, tesseractInstalled } from "./ocr/tesseract.ts";
+import { ocrWords } from "./ocr/tesseract.ts";
 import { comparePixels } from "./verify/pixels.ts";
 import { compareText } from "./verify/text.ts";
 import { EXIT, IrisPdfError, newReport, type PageReport, type Report, type Warning } from "./report.ts";
@@ -23,11 +23,7 @@ export type TagOptions = OpenOptions & {
   values?: Record<string, FormValue>;
   lang?: string;
   title?: string;
-  ocr?: "auto" | "off" | "required";
-  verify?: boolean;
-  verifyDpi?: number;
   flatten?: boolean;
-  partial?: boolean;
 };
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
@@ -52,8 +48,6 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   if (!lang) throw new IrisPdfError("no_document_language", "No document language. Iris gave none; pass --lang.", EXIT.badInput);
   const title = input.title || opts.title || doc.getMetaData("info:Title");
   if (!title) warn({ code: "no_title", detail: "No document title. Pass --title." });
-  const ocr = opts.ocr ?? "auto";
-  if (ocr === "required" && !tesseractInstalled()) throw new IrisPdfError("no_text_positions", "Tesseract is not installed, and --ocr required was given.");
 
   // Forms: check every value, then set them, then flatten if asked.
   const fields = inventory(doc);
@@ -86,7 +80,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
       continue;
     }
     const r = tagPage(page, i, html.get(i)!, {
-      doc, struct, fonts, lang, ocr, partial: !!opts.partial, flatten: !!opts.flatten, warn,
+      doc, struct, fonts, lang, flatten: !!opts.flatten, warn,
       widgets: widgets.filter((w) => w.page === i), allWidgets: widgets, values, fields,
     });
     report.pages.push(r.report);
@@ -116,7 +110,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
-  if (opts.verify !== false) verify(pdf, baseline, out, opts, filled.changed, overlayText, report);
+  verify(pdf, baseline, out, opts, filled.changed, overlayText, report);
   return out;
 }
 
@@ -136,8 +130,6 @@ type PageCtx = {
   struct: StructTree;
   fonts: FontSet;
   lang: string;
-  ocr: "auto" | "off" | "required";
-  partial: boolean;
   flatten: boolean;
   warn: (w: Warning) => void;
   widgets: (Widget & { box: Box; used: boolean })[]; // this page's
@@ -158,11 +150,9 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   let words: PageWord[] = textLayerWords(page);
   if (words.length) report.textSource = "pdf-text";
   else if (ordered.length) {
-    const ocr = ctx.ocr === "off" ? null : ocrWords(page);
+    const ocr = ocrWords(page);
     if (!ocr) {
-      const why = ctx.ocr === "off" ? "OCR is off" : "Tesseract is not installed";
-      if (!ctx.partial) throw new IrisPdfError("no_text_positions", `Page ${n} has no text layer and ${why}.`);
-      warn({ code: "no_text_positions", detail: `${why}; the page was left untagged.` });
+      warn({ code: "no_text_positions", detail: "The page has no text layer and Tesseract is not installed; it was left untagged." });
       return { report, overlay: null, untagged: true };
     }
     words = ocr;
@@ -431,7 +421,7 @@ function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: Ta
     return d;
   };
   const after = open(out);
-  const pixels = comparePixels(open(pdf), after, opts.verifyDpi ?? 150, changed);
+  const pixels = comparePixels(open(pdf), after, 150, changed);
   const text = compareText(open(baseline), after, added);
   report.verification = {
     pixels: pixels.length ? "failed" : "identical-outside-fields",
