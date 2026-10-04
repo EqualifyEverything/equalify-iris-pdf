@@ -63,7 +63,7 @@ Text fields take strings, checkboxes `true`/`false`, radio groups and lists one 
 
 ## How it works
 
-1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`).
+1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
 2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan).
 3. An invisible text layer is added with Iris's words at those positions, tagged with the structure from the HTML: headings, lists, tables with their headers, links, figures with alt text, form fields.
 4. The file is saved incrementally: the original bytes are the start of the output. A damaged file is instead rewritten from mupdf's repair of it, with warning `repaired`.

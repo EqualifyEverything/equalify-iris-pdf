@@ -39,8 +39,9 @@ test("a tagged PDF is retagged, and --retag is still accepted", () => {
   assert.equal(run(...tagArgs("text-simple", once)).code, 0);
   const again = ["tag", "--pdf", once, "--pages", fixture("text-simple.pages.json"), "--out", twice];
   assert.equal(run(...again).code, 0);
+  const plain = readFileSync(twice);
   assert.equal(run(...again, "--retag").code, 0);
-  assert.ok(existsSync(twice));
+  assert.ok(readFileSync(twice).equals(plain), "--retag changes nothing");
 });
 
 test("a failed verification exits 2 and writes no PDF", () => {

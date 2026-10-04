@@ -55,7 +55,6 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
     throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
   }
   if (!root.get("StructTreeRoot").isNull()) {
-    // An already-tagged PDF is retagged: its old tags are replaced.
     source.restored = untag(doc);
     warnings.push({ code: "retagged", detail: "The PDF's existing tags were removed and replaced." });
   }
