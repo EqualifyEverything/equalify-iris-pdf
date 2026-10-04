@@ -152,11 +152,13 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   else if (ordered.length) {
     const ocr = ocrWords(page);
     if (typeof ocr === "string") {
-      warn({ code: "no_text_positions", detail: `The page has no text layer and ${ocr}; it was left untagged.` });
-      return { report, overlay: null, untagged: true };
+      // Still tagged: the words flow down the page in reading order, not over their image.
+      warn({ code: "no_text_positions", detail: `The page has no text layer and ${ocr}; its words are placed approximately.` });
+      report.textSource = "approximate";
+    } else {
+      words = ocr;
+      report.textSource = "ocr";
     }
-    words = ocr;
-    report.textSource = "ocr";
   }
   // Text drawn inside a form field belongs to the field, which is tagged by reference.
   const inField = (w: PageWord) => ctx.widgets.some((f) => overlaps(f.box, w.box, 0.5));
@@ -180,7 +182,9 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     blockOf.set(t, ordered[k].block);
   });
   const bounds = page.getBounds();
-  fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s));
+  // With no page words, each block starts a new line, so blocks do not run together.
+  const breaks = new Set(words.length ? [] : ordered.filter((o, k) => k && o.block !== ordered[k - 1].block).map((o) => o.word));
+  fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s), breaks);
 
   // Page words Iris left out: furniture, or lost content reported and kept as a P.
   const lost = new Map<number, Run[]>(); // after which top-level block
@@ -247,8 +251,8 @@ const placed = (w: PageWord): Placed => ({ box: w.box, baseline: w.baseline, siz
 // An HTML word with no page word follows the word before it, at its natural
 // width, wrapping at the page edge: extractors drop text off the page, and
 // merge repeated letters piled into one spot. With no word before it, it
-// starts at the first placed word, or the page's top left.
-function fillPositions(words: Word[], page: Box, width: (text: string) => number) {
+// starts at the first placed word, or the page's top left. A word in `breaks` starts a new line.
+function fillPositions(words: Word[], page: Box, width: (text: string) => number, breaks = new Set<Word>()) {
   const fallback: Placed = { box: [page[0] + 10, page[1] + 10, page[0] + 10, page[1] + 20], baseline: page[1] + 20, size: 10 };
   const first = words.find((w) => w.at)?.at ?? fallback;
   let prev: Word | null = null;
@@ -258,8 +262,8 @@ function fillPositions(words: Word[], page: Box, width: (text: string) => number
       const wide = Math.min(width(w.text) * size, page[2] - page[0] - 2);
       let x = prev ? from.box[2] + (prev.space ?? true ? width(" ") * size : 0) : first.box[0];
       let dy = 0;
-      if (x + wide > page[2] - 1) {
-        x = page[0] + 1;
+      if (breaks.has(w) || x + wide > page[2] - 1) {
+        x = breaks.has(w) ? first.box[0] : page[0] + 1;
         dy = from.box[3] + line > page[3] ? page[1] + line - from.box[3] : line; // off the bottom: back to the top
       }
       w.at = { size, baseline: from.baseline + dy, box: [x, from.box[1] + dy, x + wide, from.box[3] + dy] };
