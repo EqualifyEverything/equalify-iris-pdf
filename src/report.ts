@@ -28,7 +28,8 @@ export type Report = {
   };
   pages: PageReport[];
   structure: { elements: number; byType: Record<string, number> };
-  form: { fields: number; set: number; skippedReadOnly: number; unresolved: string[] };
+  // created: the fields made for a flat form, from its HTML.
+  form: { fields: number; set: number; skippedReadOnly: number; unresolved: string[]; created: { name: string; type: string; page: number }[] };
   verification: {
     pixels: "identical-outside-fields" | "failed" | "off";
     differingPixels: number;
@@ -46,7 +47,7 @@ export function newReport(): Report {
     source: { pages: 0, encrypted: false, signed: false, acroform: false, xfa: false, hadTextLayer: [] },
     pages: [],
     structure: { elements: 0, byType: {} },
-    form: { fields: 0, set: 0, skippedReadOnly: 0, unresolved: [] },
+    form: { fields: 0, set: 0, skippedReadOnly: 0, unresolved: [], created: [] },
     verification: { pixels: "off", differingPixels: 0, textPreserved: null },
     pdfua: { checked: false },
     sizeIncreaseBytes: 0,

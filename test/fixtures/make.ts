@@ -258,6 +258,38 @@ pagesJson("form-flat.pages.json", [{
   sourcePage: 1, html: '<h1>Permit Application</h1><form><p><label for="n">Full name</label> <input id="n" name="name"></p></form>',
 }]);
 
+// --- form-lines: a flat form with each kind of blank: an underline, a box, a
+// check box, radio circles, a table with a faint row line, and a label with
+// no blank. form-scan and form-scan-skewed are it scanned.
+const circle = (x: number, y: number, r: number) => {
+  const k = r * 0.5523;
+  return `${x + r} ${y} m ${x + r} ${y + k} ${x + k} ${y + r} ${x} ${y + r} c ${x - k} ${y + r} ${x - r} ${y + k} ${x - r} ${y} c ` +
+    `${x - r} ${y - k} ${x - k} ${y - r} ${x} ${y - r} c ${x + k} ${y - r} ${x + r} ${y - k} ${x + r} ${y} c S\n`;
+};
+const formLines = textDoc([
+  show(20, 360, 14, "Library Card", "F2") + show(20, 340, 9, "About you", "F2") +
+  show(20, 322, 9, "Full name") + "0 G 0.8 w 75 320 m 290 320 l S\n" +
+  show(20, 300, 9, "Email") + "75 294 215 16 re S\n" +
+  "20 272 8 8 re S\n" + show(32, 273, 9, "Send me news") +
+  show(20, 250, 9, "Card type:") + circle(84, 253, 4) + show(92, 250, 9, "Adult") + circle(134, 253, 4) + show(142, 250, 9, "Child") +
+  "20 160 270 70 re S 155 160 m 155 230 l S 20 212 m 290 212 l S\n" + show(30, 218, 9, "Book", "F2") + show(165, 218, 9, "Due", "F2") +
+  "q 0.75 G 0.5 w 20 186 m 290 186 l S Q\n" +
+  show(20, 130, 9, "Phone"),
+]);
+const formHtml = '<h1>Library Card</h1><form><fieldset><legend>About you</legend>' +
+  '<p><label for="n">Full name</label><input id="n" name="name"></p>' +
+  '<p><label for="e">Email</label><input id="e" name="email" type="email"></p></fieldset>' +
+  '<p><label><input type="checkbox" name="news"> Send me news</label></p>' +
+  '<p>Card type: <label><input type="radio" name="card" value="adult"> Adult</label> <label><input type="radio" name="card" value="child"> Child</label></p>' +
+  '<table><thead><tr><th>Book</th><th>Due</th></tr></thead><tbody>' +
+  '<tr><td><input aria-label="Book" name="book1"></td><td><input aria-label="Due" name="due1"></td></tr>' +
+  '<tr><td><input aria-label="Book" name="book2"></td><td><input aria-label="Due" name="due2"></td></tr></tbody></table>' +
+  '<p><label for="p">Phone</label><input id="p" name="phone" type="tel"></p></form>';
+save("form-lines.pdf", formLines);
+save("form-scan.pdf", scanDoc([formLines]));
+save("form-scan-skewed.pdf", scanDoc([formLines], 1.5));
+for (const name of ["form-lines", "form-scan", "form-scan-skewed"]) pagesJson(`${name}.pages.json`, [{ sourcePage: 1, html: formHtml }]);
+
 // --- encrypted: needs a password to open. restricted: opens, but the owner
 // has forbidden changes (permissions: print, copy, extract only).
 save("encrypted.pdf", textDoc([simple]), "encrypt=aes-256,user-password=open,owner-password=owner");

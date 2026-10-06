@@ -9,7 +9,14 @@ import type { Warning } from "../report.ts";
 export type Placed = { box: Box; baseline: number; size: number };
 export type Word = { text: string; norm: string; space?: boolean; at?: Placed }; // space: one follows
 export type Run = { words: Word[] };
-export type FormRef = { name: string; value?: string; label: string; group?: string };
+// A form control. type is null for one that holds no value (a button). labelWords: its
+// label's words, to find it on the page; group: its fieldset's legend, or a radio group's question.
+export type ControlType = "text" | "multiline" | "checkbox" | "radio" | "combobox";
+export type FormRef = {
+  name: string; id?: string; value?: string; label: string; group?: string;
+  type: ControlType | null; options?: string[]; labelWords: Word[];
+  unplaced?: boolean; // a flat form's control whose blank was not found
+};
 
 export type Node = {
   type: string;
@@ -31,9 +38,14 @@ type Ctx = {
   lang: string;
   prefix: string; // keeps ids unique across pages
   labels: Map<string, string>; // input id -> its label's text
+  labelWords: Map<string, Word[]>; // input id -> its label's words, filled as they are built
+  questions: Map<string, string>; // radio name -> the text before its first button
   notes: Set<string>; // ids that internal links point at
   label?: string; // text of an enclosing <label>
   legend?: string; // text of an enclosing <fieldset>'s legend
+  collect: Word[][]; // label word lists that the text being built belongs to
+  wrapped?: Word[]; // an enclosing <label>'s words
+  ths: { n: number }; // TH cells numbered so far, so their ids are unique on the page
   warn: (w: Warning) => void;
 };
 
@@ -45,7 +57,7 @@ export function buildPage(html: string, lang: string, prefix: string, warn: (w: 
     if (e.tag === "a" && e.attrs.href?.startsWith("#")) notes.add(e.attrs.href.slice(1));
   });
   const top: Node = { type: "#root", kids: [] };
-  const ctx: Ctx = { lang, prefix, labels, notes, warn };
+  const ctx: Ctx = { lang, prefix, labels, notes, warn, labelWords: new Map(), questions: new Map(), collect: [], ths: { n: 0 } };
   for (const k of root.kids) build(k, top, ctx);
   // Text directly in the fragment, outside any block, becomes a paragraph.
   top.kids = top.kids.map((k) => (isRun(k) ? { type: "P", kids: [k] } : k));
@@ -53,10 +65,14 @@ export function buildPage(html: string, lang: string, prefix: string, warn: (w: 
 }
 
 function build(e: Elem | string, parent: Node, ctx: Ctx) {
-  if (typeof e === "string") return addText(parent, e);
+  if (typeof e === "string") return addText(parent, e, ctx.collect);
   if (SKIP.has(e.tag)) return;
   const kids = (into: Node, c: Ctx = ctx) => e.kids.forEach((k) => build(k, into, c));
-  if (e.tag === "label") return kids(parent, { ...ctx, label: clean(textOf(e)) });
+  if (e.tag === "label") {
+    const words = e.attrs.for ? labelWords(ctx, e.attrs.for) : [];
+    const wrapped = e.attrs.for ? ctx.wrapped : words;
+    return kids(parent, { ...ctx, label: clean(textOf(e)), collect: [...ctx.collect, words], wrapped });
+  }
   if (e.tag === "a" && !e.attrs.href) return kids(parent);
   if (TRANSPARENT.has(e.tag)) return kids(parent);
 
@@ -110,11 +126,19 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
     case "input": case "select": case "textarea": {
       const type = (e.attrs.type ?? "").toLowerCase();
       if (type === "hidden") return;
-      if (!e.attrs.name) return ctx.warn({ code: "field_without_name", detail: e.tag });
-      const label = (e.attrs.id && ctx.labels.get(e.attrs.id)) || ctx.label || e.attrs["aria-label"] || e.attrs.title || "";
+      const { id, name = "" } = e.attrs;
+      const label = (id && ctx.labels.get(id)) || ctx.label || e.attrs["aria-label"] || e.attrs.title || "";
+      const words = (id && ctx.labels.has(id) ? labelWords(ctx, id) : ctx.wrapped) ?? [];
       const f = add("Form");
-      f.form = { name: e.attrs.name, label, group: ctx.legend };
+      f.form = { name, id, label, group: ctx.legend, type: controlType(e.tag, type), labelWords: words };
       if (type === "radio" || type === "checkbox") f.form.value = e.attrs.value;
+      if (type === "radio" && !ctx.legend && name) {
+        if (!ctx.questions.has(name)) ctx.questions.set(name, clean(textOfNode(parent)));
+        f.form.group = ctx.questions.get(name) || undefined;
+      }
+      if (e.tag === "select") {
+        f.form.options = e.kids.flatMap((o) => (typeof o !== "string" && o.tag === "option" ? [o.attrs.value ?? clean(textOf(o))] : []));
+      }
       if (label) f.alt = label;
       return;
     }
@@ -132,7 +156,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
     case "table": {
       const table = add("Table");
       kids(table, inner);
-      return tableHeaders(table, ctx.prefix);
+      return tableHeaders(table, ctx.prefix, ctx.ths);
     }
     case "th": case "td": {
       const cell = add(STRUCT[e.tag]);
@@ -174,7 +198,7 @@ const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colg
 
 // Every TH gets an /ID and every TD a /Headers list naming the TH cells above
 // it in its column and before it in its row.
-function tableHeaders(table: Node, prefix: string) {
+function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
   const rows: { cells: Node[]; head: boolean }[] = [];
   const collect = (n: Node, head: boolean) => {
     for (const k of n.kids) {
@@ -185,7 +209,6 @@ function tableHeaders(table: Node, prefix: string) {
   };
   collect(table, false);
   const grid: Node[][] = [];
-  let ids = 0;
   rows.forEach(({ cells, head }, r) => {
     grid[r] ??= [];
     let c = 0;
@@ -194,7 +217,7 @@ function tableHeaders(table: Node, prefix: string) {
       const [cs, rs] = cell.span!;
       for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) (grid[r + dr] ??= [])[c + dc] = cell;
       if (cell.type === "TH") {
-        cell.id = `${prefix}th${++ids}`;
+        cell.id = `${prefix}th${++ths.n}`;
         cell.attrs ??= { O: "Table", Scope: head || r === 0 ? "Column" : "Row" };
       }
       const a: Record<string, unknown> = { O: "Table", ...cell.attrs };
@@ -213,8 +236,20 @@ function tableHeaders(table: Node, prefix: string) {
   }));
 }
 
-function addText(parent: Node, text: string) {
+const TEXT = new Set(["", "text", "email", "tel", "number", "date", "url", "search", "password", "time", "month", "week", "datetime-local"]);
+function controlType(tag: string, type: string): ControlType | null {
+  if (tag === "select") return "combobox";
+  if (tag === "textarea") return "multiline";
+  if (type === "checkbox" || type === "radio") return type;
+  return TEXT.has(type) ? "text" : null;
+}
+
+const labelWords = (ctx: Ctx, id: string) => ctx.labelWords.get(id) ?? (ctx.labelWords.set(id, []), ctx.labelWords.get(id)!);
+const textOfNode = (n: Node | Run): string => (isRun(n) ? n.words.map((w) => w.text).join(" ") : n.kids.map(textOfNode).join(" "));
+
+function addText(parent: Node, text: string, collect: Word[][] = []) {
   const words = splitWords(text).map((w) => ({ ...word(w.text), space: w.space }));
+  for (const list of collect) list.push(...words);
   if (/^\s/.test(text)) { const w = lastWord(parent); if (w) w.space = true; } // "<a>form</a> for"
   if (!words.length) return;
   const last = parent.kids.at(-1);

@@ -9,10 +9,11 @@ import { setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
-import { joinHyphenated, type Box, type PageWord } from "./align/words.ts";
+import { joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
 import { align, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
 import { ocrWords } from "./ocr/tesseract.ts";
+import { FieldMaker } from "./form/create.ts";
 import { comparePixels } from "./verify/pixels.ts";
 import { compareText } from "./verify/text.ts";
 import { EXIT, IrisPdfError, newReport, type PageReport, type Report, type Warning } from "./report.ts";
@@ -51,17 +52,21 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const title = input.title || opts.title || doc.getMetaData("info:Title");
   if (!title) warn({ code: "no_title", detail: "No document title. Pass --title." });
 
-  // Forms: check every value, then set them, then flatten if asked.
-  const fields = inventory(doc);
+  // Forms: check every value, then set them, then flatten if asked. A form
+  // with no fields gets them from its HTML, page by page, and is filled after.
+  let fields = inventory(doc);
   const values = opts.values ?? {};
-  checkValues(fields, values).forEach(warn);
-  const filled = setValues(doc, fields, values);
-  report.form = { fields: fields.length, set: filled.set, skippedReadOnly: filled.skippedReadOnly, unresolved: [] };
+  const maker = !fields.length && !opts.flatten ? new FieldMaker(doc) : undefined;
+  let filled = { set: 0, skippedReadOnly: 0, changed: new Map<number, Box[]>() };
+  if (!maker) {
+    checkValues(fields, values).forEach(warn);
+    filled = setValues(doc, fields, values);
+  }
   const widgets = allWidgets(doc).map((w) => ({ ...w, box: w.widget.getBounds() as Box, used: false }));
   if (opts.flatten) doc.bake(false, true);
 
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
-  const unembedded = unembeddedFonts(doc);
+  let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   const marked = pagesWithMcids(doc);
   if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
@@ -82,8 +87,8 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
       continue;
     }
     const r = tagPage(page, i, html.get(i)!, {
-      doc, struct, fonts, lang, flatten: !!opts.flatten, warn,
-      widgets: widgets.filter((w) => w.page === i), allWidgets: widgets, values, fields,
+      doc, struct, fonts, lang, flatten: !!opts.flatten, warn, maker,
+      widgets: widgets.filter((w) => w.page === i), allWidgets: widgets,
     });
     report.pages.push(r.report);
     if (r.untagged) untagged++;
@@ -97,6 +102,17 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
     }
   }
   for (const w of widgets) if (!w.used) report.form.unresolved.push(w.name);
+  if (maker) {
+    fields = inventory(doc);
+    checkValues(fields, values).forEach(warn);
+    filled = setValues(doc, fields, values);
+    report.form.created = maker.created;
+    // Typed text is drawn in Helvetica, which is not embedded.
+    const more = unembeddedFonts(doc).filter((f) => !unembedded.includes(f));
+    if (more.length) warn({ code: "font_not_embedded", detail: `${more.join(", ")}, for the filled fields; the output does not claim PDF/UA-1.` });
+    unembedded = [...unembedded, ...more];
+  }
+  Object.assign(report.form, { fields: fields.length, set: filled.set, skippedReadOnly: filled.skippedReadOnly });
 
   // Fonts go in last, as one subset holding every glyph the overlays use.
   const fontRefs = fonts.embed(doc, written.map((w) => w.overlay));
@@ -136,8 +152,7 @@ type PageCtx = {
   warn: (w: Warning) => void;
   widgets: (Widget & { box: Box; used: boolean })[]; // this page's
   allWidgets: (Widget & { box: Box; used: boolean })[];
-  values: Record<string, FormValue>;
-  fields: ReturnType<typeof inventory>;
+  maker?: FieldMaker; // a flat form: its fields are made from the HTML
 };
 
 // One page: find its words, align Iris's words to them, write the overlay and
@@ -174,12 +189,14 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const { match, complete } = align(ordered.map((o) => o.word.norm), tokens.map((t) => t.norm));
   if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
   const blockOf = new Map<number, number>();
+  const matched = new Set<Word>();
   match.forEach((t, k) => {
     if (t < 0) {
       if (ordered[k].word.norm) report.addedFromHtml++; // punctuation is not a word
       return;
     }
     report.matched++;
+    matched.add(ordered[k].word);
     ordered[k].word.at = placed(words[tokens[t].words[0]]);
     blockOf.set(t, ordered[k].block);
   });
@@ -187,6 +204,16 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   // With no page words, each block starts a new line, so blocks do not run together.
   const breaks = new Set(words.length ? [] : ordered.filter((o, k) => k && o.newLine).map((o) => o.word));
   fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s), breaks);
+  if (ctx.maker) {
+    const made = ctx.maker.page(page, i, plan, report.textSource === "approximate" ? null : {
+      matched, order: ordered.map((o) => o.word), words: words.map((w) => ({ norm: normalize(w.text), box: w.box })),
+    }, warn);
+    for (const w of made) {
+      const entry = { ...w, box: w.widget.getBounds() as Box, used: false };
+      ctx.widgets.push(entry);
+      ctx.allWidgets.push(entry);
+    }
+  }
 
   // Page words Iris left out: furniture, or lost content reported and kept as a P.
   const lost = new Map<number, Run[]>(); // after which top-level block
@@ -321,6 +348,9 @@ function linkAnnotation(n: Node, elem: mupdf.PDFObject, e: Emitter) {
 // Flattened, the widget is gone and a P carries the value instead.
 function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
   const f = n.form!;
+  if (f.unplaced) return;
+  if (e.maker && !f.type) return; // a button: nothing to fill
+  if (!f.name) return e.warn({ code: "field_without_name", detail: f.label || "a form control" });
   const mine = e.widgets.filter((w) => w.name === f.name && !w.used && (!f.value || onStates(w.widget).includes(f.value)));
   if (!mine.length) {
     const code = e.allWidgets.some((w) => w.name === f.name) ? "field_on_other_page" : "field_not_in_pdf";
@@ -335,7 +365,8 @@ function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
     return writeRun("P", elem, [{ text, norm: "", at }], e);
   }
   const elem = e.struct.add(parent, "Form", f.label ? { Alt: e.doc.newString(f.label) } : {});
-  const name = f.group || f.label;
+  // A radio button's label names one choice; its group's legend or question names the field.
+  const name = (f.type === "radio" && f.group) || f.label || f.group || "";
   for (const w of mine) {
     e.struct.objr(elem, e.pageObj, w.widget.getObject());
     nameField(w, name, e.doc);

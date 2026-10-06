@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPage, isRun, wordsInOrder, type Node } from "../src/html/build.ts";
+import { buildPage, isRun, wordsInOrder, type FormRef, type Node } from "../src/html/build.ts";
 import type { Warning } from "../src/report.ts";
 
 function build(html: string) {
@@ -61,17 +61,43 @@ test("form controls take their label from for=, an enclosing label, or aria-labe
     '<fieldset><legend>Contact</legend><label for="e">Email</label><input id="e" name="contact" type="radio" value="email"></fieldset>' +
     '<label>Name <input name="name"></label><input name="state" aria-label="State"><input type="hidden" name="h"><input>',
   );
-  const forms: Node[] = [];
-  const walk = (n: Node) => { if (n.type === "Form") forms.push(n); n.kids.forEach((k) => isRun(k) || walk(k)); };
-  walk(top);
-  assert.deepEqual(forms.map((f) => f.form), [
-    { name: "contact", label: "Email", group: "Contact", value: "email" },
-    { name: "name", label: "Name", group: undefined },
-    { name: "state", label: "State", group: undefined },
+  const forms = formsOf(top).map(({ name, label, group, value, type }) => ({ name, label, group, value, type }));
+  assert.deepEqual(forms, [
+    { name: "contact", label: "Email", group: "Contact", value: "email", type: "radio" },
+    { name: "name", label: "Name", group: undefined, value: undefined, type: "text" },
+    { name: "state", label: "State", group: undefined, value: undefined, type: "text" },
+    { name: "", label: "", group: undefined, value: undefined, type: "text" }, // reported when it is tagged
   ]);
   assert.equal((top.kids[0] as Node).title, "Contact");
-  assert.deepEqual(warnings.map((w) => w.code), ["field_without_name"]);
+  assert.deepEqual(warnings, []);
 });
+
+test("form controls keep their label's words, a radio group's question, and a list's options", () => {
+  const { top } = build(
+    '<p>Do you own a home? <label><input type="radio" name="own" value="y"> Yes</label><label><input type="radio" name="own" value="n"> No</label></p>' +
+    '<label for="c">Your city:</label><select id="c" name="city"><option value="a">Ames</option><option>Boone</option></select><textarea name="notes"></textarea>',
+  );
+  const [yes, no, city, notes] = formsOf(top);
+  assert.deepEqual([yes.group, no.group], ["Do you own a home?", "Do you own a home?"]);
+  assert.deepEqual(no.labelWords.map((w) => w.text), ["No"]);
+  assert.deepEqual(city.labelWords.map((w) => w.text), ["Your", "city:"]);
+  assert.deepEqual([city.type, city.options], ["combobox", ["a", "Boone"]]);
+  assert.equal(notes.type, "multiline");
+});
+
+test("header ids are unique across a page's tables", () => {
+  const { top } = build("<table><tr><th>A</th></tr><tr><td>1</td></tr></table><table><tr><th>B</th></tr><tr><td>2</td></tr></table>");
+  const ids: string[] = [], walk = (n: Node) => { if (n.id) ids.push(n.id); n.kids.forEach((k) => isRun(k) || walk(k)); };
+  walk(top);
+  assert.deepEqual(ids, ["p1-th1", "p1-th2"]);
+});
+
+function formsOf(top: Node) {
+  const forms: FormRef[] = [];
+  const walk = (n: Node) => { if (n.form) forms.push(n.form); n.kids.forEach((k) => isRun(k) || walk(k)); };
+  walk(top);
+  return forms;
+}
 
 test("tables: header ids, scope and each cell's headers", () => {
   const { top } = build(

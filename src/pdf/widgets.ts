@@ -27,14 +27,16 @@ export type FormValue = string | boolean | string[];
 export function allWidgets(doc: mupdf.PDFDocument): Widget[] {
   const out: Widget[] = [];
   for (let i = 0; i < doc.countPages(); i++) {
-    for (const widget of doc.loadPage(i).getWidgets()) {
-      const obj = widget.getObject();
-      // A widget with no /T of its own is one of its parent field's widgets.
-      const field = obj.get("T").isNull() && !obj.get("Parent").isNull() ? obj.get("Parent") : obj;
-      out.push({ name: widget.getName(), page: i, widget, field });
-    }
+    for (const widget of doc.loadPage(i).getWidgets()) out.push(widgetOf(widget, i));
   }
   return out;
+}
+
+export function widgetOf(widget: mupdf.PDFWidget, page: number): Widget {
+  const obj = widget.getObject();
+  // A widget with no /T of its own is one of its parent field's widgets.
+  const field = obj.get("T").isNull() && !obj.get("Parent").isNull() ? obj.get("Parent") : obj;
+  return { name: widget.getName(), page, widget, field };
 }
 
 // A button widget's states, from its normal appearances: the on-states, never Off.
