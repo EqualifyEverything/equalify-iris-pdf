@@ -237,11 +237,12 @@ test("a word in a very narrow box keeps its repeated letters", () => {
 test("a word running off the page edge keeps every letter of its tagged text", () => {
   // Extractors drop a glyph off the page. The source word is monospaced, so its
   // last letter starts just inside; stretched to the same box, ours would not.
+  // So too at the left edge, for its first letter.
   const doc = new mupdf.PDFDocument();
   const res = doc.addObject({ Font: { F1: doc.addSimpleFont(new mupdf.Font("Helvetica")), F2: doc.addSimpleFont(new mupdf.Font("Courier")) } });
-  doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, res, "BT /F1 12 Tf 10 200 Td (Thanks) Tj ET BT /F2 12 Tf 276.4 200 Td (Hail) Tj ET"));
+  doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, res, "BT /F1 12 Tf 10 200 Td (Thanks) Tj ET BT /F2 12 Tf 276.4 200 Td (Hail) Tj ET BT /F2 12 Tf -4 180 Td (iWall) Tj ET"));
   const report = newReport();
-  tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", title: "t", pages: [{ sourcePage: 1, html: "<p>Thanks Hail</p>" }] }, {}, report);
+  tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", title: "t", pages: [{ sourcePage: 1, html: "<p>Thanks Hail</p><p>iWall</p>" }] }, {}, report);
   assert.equal(report.verification.textPreserved, true);
 });
 
