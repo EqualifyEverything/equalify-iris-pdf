@@ -13,7 +13,7 @@ import { joinHyphenated, normalize, type Box, type PageWord } from "./align/word
 import { align, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
 import { ocrWords } from "./ocr/tesseract.ts";
-import { FieldMaker } from "./form/create.ts";
+import { FieldMaker, fieldNames } from "./form/create.ts";
 import { comparePixels } from "./verify/pixels.ts";
 import { compareText } from "./verify/text.ts";
 import { EXIT, IrisPdfError, newReport, type PageReport, type Report, type Warning } from "./report.ts";
@@ -351,7 +351,13 @@ function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
   if (f.unplaced) return;
   if (e.maker && !f.type) return; // a button: nothing to fill
   if (!f.name) return e.warn({ code: "field_without_name", detail: f.label || "a form control" });
-  const mine = e.widgets.filter((w) => w.name === f.name && !w.used && (!f.value || onStates(w.widget).includes(f.value)));
+  const free = (name: string) => e.widgets.filter((w) => w.name === name && !w.used && (!f.value || onStates(w.widget).includes(f.value)));
+  let mine = free(f.name);
+  // Retagging our own output: a field we made may carry a changed name.
+  for (const name of fieldNames(f.name)) {
+    if (mine.length || !e.allWidgets.some((w) => w.name === name)) break;
+    mine = free(name);
+  }
   if (!mine.length) {
     const code = e.allWidgets.some((w) => w.name === f.name) ? "field_on_other_page" : "field_not_in_pdf";
     return e.warn({ code, detail: f.name });

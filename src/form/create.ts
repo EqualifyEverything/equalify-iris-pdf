@@ -87,9 +87,9 @@ export class FieldMaker {
       this.acroform().get("Fields").push(obj);
       if (f.type === "checkbox") {
         obj.put("FT", n("Btn"));
-        obj.put("AP", { N: { Yes: this.stream(cross(w, h), w, h), Off: this.stream("", w, h) } });
+        f.value = (f.value || "Yes").replace(/^Off$/, "off");
+        obj.put("AP", { N: { [f.value]: this.stream(cross(w, h), w, h), Off: this.stream("", w, h) } });
         obj.put("AS", n("Off"));
-        f.value = undefined; // its on-state is Yes, whatever the HTML's value
       } else {
         const size = Math.max(6, Math.min(f.type === "multiline" ? 10 : 12, Math.floor(h * 0.7)));
         obj.put("FT", n(f.type === "combobox" ? "Ch" : "Tx"));
@@ -114,7 +114,6 @@ export class FieldMaker {
     const heads = (td.headers ?? []).map((id) => ths.get(id)!).filter(Boolean);
     const col = heads.filter((h) => h.attrs?.Scope !== "Row").at(-1), row = heads.find((h) => h.attrs?.Scope === "Row");
     const colBox = col && lineBox(wordsOf(col), matched);
-   
     if (!col || !colBox) return null;
     const x = (colBox[0] + colBox[2]) / 2, lh = colBox[3] - colBox[1];
     let cell: Box | null;
@@ -137,11 +136,8 @@ export class FieldMaker {
   }
 
   private unique(base: string): string {
-    const clean = base.replace(/\./g, "-"); // a period separates a field from its parent's name
-    let name = clean;
-    for (let k = 2; this.names.has(name); k++) name = `${clean}-${k}`;
-    this.names.add(name);
-    return name;
+    for (const name of fieldNames(base)) if (!this.names.has(name)) return this.names.add(name), name;
+    throw new Error("unreachable");
   }
 
   private stream(ops: string, w: number, h: number) {
@@ -199,6 +195,14 @@ function line(on: Box[]): Box | null {
 }
 
 const wordsOf = (n: Node): Word[] => n.kids.flatMap((k) => (isRun(k) ? k.words : wordsOf(k)));
+// The names a field made for an HTML name may get, in turn. A period would
+// make it a child of a field named by what comes before.
+export function* fieldNames(base: string) {
+  const clean = base.replace(/\./g, "-");
+  yield clean;
+  for (let k = 2; ; k++) yield `${clean}-${k}`;
+}
+
 const slug = (s: string) => s.normalize("NFKD").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 
 // A check box's cross and a radio button's dot, drawn when chosen.

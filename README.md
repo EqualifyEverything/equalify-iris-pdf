@@ -59,7 +59,7 @@ Text fields take strings, checkboxes `true`/`false`, radio groups and lists one 
 
 ### Flat forms
 
-A PDF with no form fields, such as a scanned form, gets them from the HTML: each `<input>`, `<select>` and `<textarea>` becomes a field on the blank beside its label (an underline, a box, a table cell, a check box or radio circle). A field is named by its `name`, else its `id`, else its label. The report lists them under `form.created`, and `--values` fills them by those names. A control whose blank is not found is warned `field_not_placed` and gets no field; its label is still read. A scan needs Tesseract for this: with its words placed approximately, no fields are made.
+A PDF with no form fields, such as a scanned form, gets them from the HTML: each `<input>`, `<select>` and `<textarea>` becomes a field on the blank beside its label (an underline, a box, a table cell, a check box or radio circle). A field is named by its `name`, else its `id`, else its label, with periods made dashes and a number added to a repeat (`date-2`). The report lists the names under `form.created`, and `--values` fills them by those names. A control whose blank is not found is warned `field_not_placed` and gets no field; its label is still read. A scan needs Tesseract for this: with its words placed approximately, no fields are made.
 
 ## How it works
 

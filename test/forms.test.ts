@@ -185,3 +185,15 @@ test("a scan whose words are placed approximately gets no fields", () => {
   assert.equal(report.warnings.filter((w: { code: string }) => w.code === "field_not_placed").length, 10); // every control, a radio button each
   assert.equal(new mupdf.PDFDocument(readFileSync(out)).loadPage(0).getWidgets().length, 0);
 });
+
+test("a flat form's made fields keep their tags when the output is tagged again", () => {
+  // A check box with a value, a dotted name and a repeated one: each made field's name or state differs from the HTML.
+  const html = pagesOf("form-lines").pages[0].html.replace('name="news"', 'name="news" value="yes"').replace('name="name"', 'name="you.name"').replace('name="due2"', 'name="due1"');
+  const pages = { ...pagesOf("form-lines"), pages: [{ sourcePage: 1, html }] };
+  const first = newReport(), out = tag(readFixture("form-lines.pdf"), pages, { values: { news: true } }, first);
+  assert.deepEqual(first.form.created.map((c) => c.name), ["you-name", "email", "news", "card", "book1", "due1", "book2", "due1-2"]);
+  const again = newReport(), doc = new mupdf.PDFDocument(tag(out, pages, {}, again));
+  assert.deepEqual(again.warnings.filter((w) => w.code.startsWith("field_")).map((w) => w.code), ["field_not_in_pdf"]); // phone
+  assert.equal(find(structTree(doc), "Form").length, 9);
+  assert.equal(state(widgets(doc).get("news")![0]), "yes");
+});
