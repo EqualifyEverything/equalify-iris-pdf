@@ -32,7 +32,9 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   const { doc } = src;
   // The old overlay's text is gone on purpose, so the text check compares against the source without it.
   // Pixels compare against the input itself: the restore must not change a pixel.
-  const baseline = src.restored ? save(doc, true) : pdf;
+  // The baseline is saved from a second copy: after a full save, mupdf writes the
+  // incremental update as an xref table with the xref stream's trailer, which Preview cannot open.
+  const baseline = src.restored ? save(openPdf(pdf, opts).doc, true) : pdf;
   const warn = (w: Warning) => report.warnings.push(w);
   src.warnings.forEach(warn);
   const pageCount = doc.countPages();

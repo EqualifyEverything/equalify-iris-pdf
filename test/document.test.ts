@@ -84,6 +84,22 @@ test("retags a PDF that is already tagged", () => {
   assert.equal(report.verification.differingPixels, 0);
 });
 
+test("retagging a PDF with an xref stream appends an xref stream", () => {
+  // A classic table there, carrying the stream's trailer, is a file macOS Preview cannot open.
+  const src = new mupdf.PDFDocument(readFixture("text-simple.pdf")).saveToBuffer("compress,objstms").asUint8Array().slice();
+  const lastXref = (pdf: Uint8Array) => {
+    const s = Buffer.from(pdf).toString("latin1");
+    const at = Number(s.slice(s.lastIndexOf("startxref") + 9).trim().split(/\s/)[0]);
+    return s.startsWith("xref", at) ? "table" : "stream";
+  };
+  assert.equal(lastXref(src), "stream");
+  const once = tag(src, simple);
+  const report = newReport();
+  const twice = tag(once, simple, {}, report);
+  assert.ok(report.warnings.some((w) => w.code === "retagged"));
+  assert.deepEqual([lastXref(once), lastXref(twice)], ["stream", "stream"]);
+});
+
 test("retagging drops a foreign tag tree and what points into it", () => {
   const pdf = blankPdf(1, (doc) => {
     const page = doc.findPage(0);
