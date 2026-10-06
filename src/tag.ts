@@ -188,7 +188,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     throw new IrisPdfError("too_many_words", `Page ${n} has more than ${MAX_WORDS} words.`);
   const { match, complete } = align(ordered.map((o) => o.word.norm), tokens.map((t) => t.norm));
   if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
-  const blockOf = new Map<number, number>();
+  const blockOf = new Map<number, number>(), bounds = page.getBounds() as Box;
   const matched = new Set<Word>();
   match.forEach((t, k) => {
     if (t < 0) {
@@ -197,10 +197,9 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     }
     report.matched++;
     matched.add(ordered[k].word);
-    ordered[k].word.at = placed(words[tokens[t].words[0]]);
+    ordered[k].word.at = placed(words[tokens[t].words[0]], bounds);
     blockOf.set(t, ordered[k].block);
   });
-  const bounds = page.getBounds();
   // With no page words, each block starts a new line, so blocks do not run together.
   const breaks = new Set(words.length ? [] : ordered.filter((o, k) => k && o.newLine).map((o) => o.word));
   fillPositions(ordered.map((o) => o.word), bounds, (s) => ctx.fonts.width(s), breaks);
@@ -227,7 +226,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
       }
       report.lost++;
       if (!run) lost.set(block, [...(lost.get(block) ?? []), (run = { words: [] })]);
-      run.words.push({ text: w.text, norm: "", at: placed(w) });
+      run.words.push({ text: w.text, norm: "", at: placed(w, bounds) });
     }
   });
   for (const runs of lost.values()) {
@@ -275,7 +274,9 @@ type Link = { obj: mupdf.PDFObject; box: Box; uri: string; used: boolean };
 type Emitter = PageCtx & { pageObj: mupdf.PDFObject; overlay: Overlay; links: Link[]; mcids: number };
 
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
-const placed = (w: PageWord): Placed => ({ box: w.box, baseline: w.baseline, size: w.size });
+// A word running off the page is squeezed onto it: extractors drop glyphs off the page.
+const placed = (w: PageWord, page: Box): Placed =>
+  ({ box: [Math.max(w.box[0], page[0]), w.box[1], Math.min(w.box[2], page[2]), w.box[3]], baseline: w.baseline, size: w.size });
 
 // An HTML word with no page word follows the word before it, at its natural
 // width, wrapping at the page edge: extractors drop text off the page, and

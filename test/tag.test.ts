@@ -234,6 +234,17 @@ test("a word in a very narrow box keeps its repeated letters", () => {
   assert.doesNotMatch(overlay.toString(), /NaN|Infinity/);
 });
 
+test("a word running off the page edge keeps every letter of its tagged text", () => {
+  // Extractors drop a glyph off the page. The source word is monospaced, so its
+  // last letter starts just inside; stretched to the same box, ours would not.
+  const doc = new mupdf.PDFDocument();
+  const res = doc.addObject({ Font: { F1: doc.addSimpleFont(new mupdf.Font("Helvetica")), F2: doc.addSimpleFont(new mupdf.Font("Courier")) } });
+  doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, res, "BT /F1 12 Tf 10 200 Td (Thanks) Tj ET BT /F2 12 Tf 276.4 200 Td (Hail) Tj ET"));
+  const report = newReport();
+  tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", title: "t", pages: [{ sourcePage: 1, html: "<p>Thanks Hail</p>" }] }, {}, report);
+  assert.equal(report.verification.textPreserved, true);
+});
+
 test("a character no font has is reported and left out, not a verification failure", () => {
   const report = newReport();
   tag(readFixture("text-simple.pdf"), { lang: "en", pages: [{ sourcePage: 1, html: "<h1>Parking Permit 🦄 x🦄</h1>" }] }, {}, report);
