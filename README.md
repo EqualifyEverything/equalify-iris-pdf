@@ -57,6 +57,10 @@ Field name to value. Names are the ones `iris-pdf fields` prints.
 
 Text fields take strings, checkboxes `true`/`false`, radio groups and lists one of their options. A wrong type, an unknown option or a value over the field's length limit stops the run before anything is written. Read-only fields are skipped and counted. Unchecking always writes `/Off`, whatever the source used for "off".
 
+### Flat forms
+
+A PDF with no form fields, such as a scanned form, gets them from the HTML: each `<input>`, `<select>` and `<textarea>` becomes a field on the blank beside its label (an underline, a box, a table cell, a check box or radio circle). A field is named by its `name`, else its `id`, else its label, with periods made dashes and a number added to a repeat (`date-2`). The report lists the names under `form.created`, and `--values` fills them by those names. A control whose blank is not found is warned `field_not_placed` and gets no field; its label is still read. A scan needs Tesseract for this: with its words placed approximately, no fields are made.
+
 ## How it works
 
 1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
@@ -73,7 +77,7 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `field_not_placed` (a flat form's control with no blank found for it), `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
 ## Review
 
@@ -106,7 +110,7 @@ Form values are personal data. They are never printed, logged, or put in the rep
 - A table that continues onto the next page is tagged as two tables.
 - `check` needs veraPDF installed.
 - `review` reads only structure tagged by this tool. Its findings are a model's judgment: check them before acting on them. Text in the document can mislead the model, so no findings does not prove a document accessible.
-- A form with no fields (a flat form) cannot be filled.
+- A flat form's fields are found from the page's lines, so a blank may be missed (`field_not_placed`). Their text is drawn in Helvetica, which is not embedded, so such an output does not claim PDF/UA-1.
 
 ## License
 

@@ -31,7 +31,7 @@ test("refuses what it cannot safely change, each with its own code", () => {
     ["owner forbids edits", readFixture("restricted.pdf"), {}, "permissions_denied", 1],
     ["signed", readFixture("signed.pdf"), {}, "signed", 1],
     ["26 pages", blankPdf(26), {}, "too_many_pages", 1],
-    ["value for a flat form", readFixture("form-flat.pdf"), { values: { name: "Ada" } }, "no_acroform_field", 1],
+    ["value for a field the form lacks", readFixture("form-flat.pdf"), { values: { name: "Ada" } }, "no_acroform_field", 1],
   ];
   for (const [what, pdf, opts, code, exit] of cases) {
     assert.deepEqual((({ code, exit }) => ({ code, exit }))(refusal(pdf, opts)), { code, exit }, what);
