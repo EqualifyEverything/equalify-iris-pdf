@@ -38,6 +38,7 @@ function take(have: Map<string, number>, want: string[]): string[] {
 }
 
 // Page content only, so a field's changed value does not count as lost text.
+// The drawn text only: ActualText comes from the old structure, which tagging replaces.
 function words(doc: mupdf.PDFDocument, i: number): string[] {
-  return doc.loadPage(i).toDisplayList(false).toStructuredText("").asText().split(/\s+/).filter(Boolean);
+  return doc.loadPage(i).toDisplayList(false).toStructuredText("ignore-actualtext").asText().split(/\s+/).filter(Boolean);
 }

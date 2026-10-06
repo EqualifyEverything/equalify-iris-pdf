@@ -148,6 +148,39 @@ test("the verification gate sees changed pixels and lost text", () => {
   assert.ok(t.missing.includes("Residents"));
 });
 
+test("the text gate compares drawn text, not the old structure's ActualText", () => {
+  // A tagged source marks a line-end hyphen as a soft hyphen: ActualText U+00AD on its MCID.
+  // Our tagging replaces that structure, so the same glyph then reads as "-".
+  const doc = new mupdf.PDFDocument();
+  const content = (end: string) => "BT /F1 10 Tf 20 300 Td\n" +
+    "/P <</MCID 0>> BDC (See example.com/2022-PA) Tj EMC\n/Span <</MCID 1>> BDC (-) Tj EMC\n" +
+    `0 -14 Td /P <</MCID 2>> BDC (${end}) Tj EMC\nET\n`;
+  const font = doc.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", Encoding: "WinAnsiEncoding" });
+  const page = doc.addPage([0, 0, 306, 396], 0, { Font: { F1: font } }, content("0060.htm today."));
+  page.put("StructParents", 0);
+  doc.insertPage(-1, page);
+  const pg = doc.findPage(0);
+  const root = doc.addObject({ Type: "StructTreeRoot" });
+  const kid = (s: string, mcid: number, extra = {}) => doc.addObject({ Type: "StructElem", S: s, P: root, Pg: pg, K: mcid, ...extra });
+  const kids = [kid("P", 0), kid("Span", 1, { ActualText: doc.newString("­") }), kid("P", 2)];
+  root.put("K", kids);
+  root.put("ParentTree", doc.addObject({ Nums: [0, kids] }));
+  doc.getTrailer().get("Root").put("StructTreeRoot", root);
+  doc.getTrailer().get("Root").put("MarkInfo", { Marked: true });
+  const pdf = doc.saveToBuffer("").asUint8Array().slice();
+  assert.match(new mupdf.PDFDocument(pdf).loadPage(0).toStructuredText("").asText(), /2022-PA­/, "the source reads a soft hyphen");
+
+  const pages = { lang: "en", title: "T", pages: [{ sourcePage: 1, html: "<p>See example.com/2022-PA0060.htm today.</p>" }] };
+  const report = newReport();
+  tag(pdf, pages, {}, report);
+  assert.equal(report.verification.textPreserved, true);
+
+  // Real loss still fails: the next line's word is gone.
+  const cut = new mupdf.PDFDocument(pdf);
+  cut.findPage(0).put("Contents", cut.addStream(content("today."), {}));
+  assert.deepEqual(compareText(new mupdf.PDFDocument(pdf), cut)[0].missing, ["0060.htm"]);
+});
+
 test("xmp keeps an existing packet and replaces only its title and PDF/UA part", () => {
   const old = '<x:xmpmeta><rdf:RDF><rdf:Description xmp:CreatorTool="Word"><dc:title><rdf:Alt><rdf:li>Old</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>';
   const out = xmp(old, "New & <improved>");
