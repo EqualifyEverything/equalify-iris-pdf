@@ -2,7 +2,7 @@
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
 import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { addBody, artifactStreams, drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmark, type PageImage } from "./pdf/content.ts";
+import { artifactStreams, drawsNothing, Overlay, pageImages, pagesWithMcids, unmarkPage, type PageImage } from "./pdf/content.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
@@ -68,10 +68,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
-  for (const i of html.keys()) {
-    const page = doc.findPage(i), body = pageBody(page), clean = unmark(body);
-    if (clean !== body) page.put("Contents", addBody(doc, clean));
-  }
+  for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
   const marked = pagesWithMcids(doc);
   if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);

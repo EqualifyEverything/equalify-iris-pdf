@@ -100,13 +100,32 @@ export function unmark(s: string): string {
   return cut.length ? out + s.slice(from) : s;
 }
 
+// unmark() on the page's drawing. A stream that cannot be read leaves it as it was.
+export function unmarkPage(doc: mupdf.PDFDocument, page: mupdf.PDFObject) {
+  let body: string;
+  try {
+    body = pageBody(page);
+  } catch {
+    return;
+  }
+  const clean = unmark(body);
+  if (clean !== body) page.put("Contents", addBody(doc, clean));
+}
+
 // Each image the page's own content draws, in page space, with the index of
 // the operator drawing it. wrap: it can be given marked content of its own (it
 // is not inside a text object or optional content).
 export type PageImage = { box: Box; op: number; wrap: boolean };
+// A stream that cannot be read gives none.
 export function pageImages(page: mupdf.PDFPage): PageImage[] {
   const xobjects = page.getObject().getInheritable("Resources").get("XObject");
-  const ops = operators(pageBody(page.getObject())), out: PageImage[] = [];
+  let ops: Op[];
+  try {
+    ops = operators(pageBody(page.getObject()));
+  } catch {
+    return [];
+  }
+  const out: PageImage[] = [];
   const stack: mupdf.Matrix[] = [];
   let ctm = mupdf.Matrix.identity, text = 0, marked = 0;
   ops.forEach((o, k) => {

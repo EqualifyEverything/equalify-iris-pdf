@@ -242,15 +242,26 @@ test("a figure's marked content holds its image; a decorative image stays an art
   assert.match(body, new RegExp(`EMC /Figure <</MCID ${mcid}>> BDC\\n/Map Do\\nEMC /Artifact BMC`));
   assert.equal(body.match(/BDC\n\/\w+ Do/g)?.length, 1, "the logo is not tagged");
   assert.ok(!report.warnings.some((w) => w.code === "figure_without_image"));
-  // Retagged, the figure is marked once.
+  // Retagged, the figure is marked once; left out of the new HTML, its page drawing has no marked content.
   const again = new mupdf.PDFDocument(tag(out, pagesOf("structure")));
   assert.equal(pageBody(again.findPage(0)).match(/\/Figure/g)?.length, 1);
+  const none = pageBody(new mupdf.PDFDocument(tag(out, { lang: "en", pages: [] })).findPage(0));
+  assert.doesNotMatch(none, /BDC|BMC|EMC/);
   // When the HTML's images and the page's do not pair up, the figure keeps an empty place in the reading order.
   const html = pagesOf("structure").pages[0].html.replace('<img alt="">', '<img alt="">'.repeat(2));
   const r = newReport();
   const odd = new mupdf.PDFDocument(tag(readFixture("structure.pdf"), { ...pagesOf("structure"), pages: [{ sourcePage: 1, html }] }, {}, r));
   assert.match(r.warnings.find((w) => w.code === "figure_without_image")?.detail ?? "", /3 images and the page 2/);
   assert.match(pageBody(odd.findPage(0)), /\/Figure <<\/MCID \d+>> BDC EMC/);
+});
+
+test("a content stream that cannot be read is left alone, and its figure is warned", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const page = doc.findPage(0);
+  page.put("Contents", [page.get("Contents"), doc.addRawStream("x", { Filter: "FlateDecode", DecodeParms: { Predictor: 2, BitsPerComponent: 7 } })]);
+  const r = newReport(), html = pagesOf("text-embedded").pages[0].html + '<img alt="A map">';
+  tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html }] }, {}, r);
+  assert.deepEqual(["source_marked_content", "figure_without_image"].map((c) => r.warnings.some((w) => w.code === c)), [true, true]);
 });
 
 test("a scan's page image is not a figure; an inline image can be", () => {
