@@ -144,6 +144,7 @@ pagesJson("links.pages.json", [{
 }]);
 
 // --- structure: embedded fonts, and a list, table, figure, footnote and link, so veraPDF sees each shape.
+// The figure's map is an image, drawn after a decorative logo in a second content stream.
 {
   const doc = textDoc([
     furniture(1) +
@@ -156,7 +157,12 @@ pagesJson("links.pages.json", [{
     show(20, 205, 7, "1. Renewals are online too."),
   ], true);
   const x0 = 20 + width("Apply online at ", 9), x1 = x0 + width("the city website", 9);
-  doc.loadPage(0).getObject().put("Annots", [doc.addObject({
+  const page = doc.loadPage(0).getObject();
+  const gray = (w: number, h: number) => doc.addRawStream(Buffer.from([...Array(w * h)].map((_, k) => (k * 37) % 256)),
+    { Type: "XObject", Subtype: "Image", Width: w, Height: h, ColorSpace: "DeviceGray", BitsPerComponent: 8 });
+  page.get("Resources").put("XObject", { Logo: gray(2, 2), Map: gray(8, 6) });
+  page.put("Contents", [page.get("Contents"), doc.addStream("q 30 0 0 30 260 345 cm /Logo Do Q\nq 100 0 0 75 180 240 cm /Map Do Q\n", {})]);
+  page.put("Annots", [doc.addObject({
     Type: "Annot", Subtype: "Link", Rect: [x0, 222, x1, 233], Border: [0, 0, 0],
     A: { S: "URI", URI: doc.newString("https://example.org/permits") },
   })]);
@@ -164,7 +170,7 @@ pagesJson("links.pages.json", [{
 }
 pagesJson("structure.pages.json", [{
   sourcePage: 1,
-  html: "<h1>Permit types</h1><ol><li>Resident</li><li>Visitor</li></ol>" +
+  html: '<img alt=""><h1>Permit types</h1><ol><li>Resident</li><li>Visitor</li></ol>' +
     "<table><tr><th scope=col>Zone</th><th scope=col>Fee</th></tr><tr><td>North</td><td>20</td></tr></table>" +
     '<figure><img alt="Zones north and south of the river"><figcaption>Map of the permit zones</figcaption></figure>' +
     '<p>Apply online at <a href="https://example.org/permits">the city website</a>.<a href="#fn1">1</a></p>' +

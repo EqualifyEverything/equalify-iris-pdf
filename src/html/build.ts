@@ -30,6 +30,8 @@ export type Node = {
   href?: string; // Link
   form?: FormRef; // Form
   span?: [number, number]; // a table cell's colspan, rowspan
+  image?: number; // a Figure: its <img> among the page's, decorative ones counted
+  images?: number; // the page root: how many <img> it has
 };
 
 export const isRun = (k: Node | Run): k is Run => "words" in k;
@@ -46,6 +48,7 @@ type Ctx = {
   collect: Word[][]; // label word lists that the text being built belongs to
   wrapped?: Word[]; // an enclosing <label>'s words
   ths: { n: number }; // TH cells numbered so far, so their ids are unique on the page
+  images: { n: number };
   warn: (w: Warning) => void;
 };
 
@@ -57,8 +60,9 @@ export function buildPage(html: string, lang: string, prefix: string, warn: (w: 
     if (e.tag === "a" && e.attrs.href?.startsWith("#")) notes.add(e.attrs.href.slice(1));
   });
   const top: Node = { type: "#root", kids: [] };
-  const ctx: Ctx = { lang, prefix, labels, notes, warn, labelWords: new Map(), questions: new Map(), collect: [], ths: { n: 0 } };
+  const ctx: Ctx = { lang, prefix, labels, notes, warn, labelWords: new Map(), questions: new Map(), collect: [], ths: { n: 0 }, images: { n: 0 } };
   for (const k of root.kids) build(k, top, ctx);
+  top.images = ctx.images.n;
   // Text directly in the fragment, outside any block, becomes a paragraph.
   top.kids = top.kids.map((k) => (isRun(k) ? { type: "P", kids: [k] } : k));
   return top;
@@ -109,9 +113,10 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return;
     }
     case "img": {
+      const image = ctx.images.n++;
       if (e.attrs.alt === undefined) return ctx.warn({ code: "missing_alt", detail: e.attrs.src ?? "img" });
       if (e.attrs.alt === "") return; // decorative: the original drawing is already an artifact
-      add("Figure").alt = e.attrs.alt;
+      Object.assign(add("Figure"), { alt: e.attrs.alt, image });
       return;
     }
     case "a": {

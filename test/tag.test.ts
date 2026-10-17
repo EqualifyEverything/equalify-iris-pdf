@@ -8,7 +8,7 @@ import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { comparePixels } from "../src/verify/pixels.ts";
 import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
-import { Overlay, pagesWithMcids } from "../src/pdf/content.ts";
+import { Overlay, pageBody, pagesWithMcids, unmark } from "../src/pdf/content.ts";
 import { FontSet, unembeddedFonts } from "../src/pdf/fonts.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture } from "./helpers.ts";
 
@@ -234,6 +234,35 @@ test("a word in a very narrow box keeps its repeated letters", () => {
   assert.doesNotMatch(overlay.toString(), /NaN|Infinity/);
 });
 
+test("a figure's marked content holds its image; a decorative image stays an artifact", () => {
+  const { out, report, doc } = tagFixture("structure");
+  const body = pageBody(doc.findPage(0));
+  const figure = find(structTree(doc), "Figure")[0];
+  const mcid = figure.dict.get("K").get(0).asNumber();
+  assert.match(body, new RegExp(`EMC /Figure <</MCID ${mcid}>> BDC\\n/Map Do\\nEMC /Artifact BMC`));
+  assert.equal(body.match(/BDC\n\/\w+ Do/g)?.length, 1, "the logo is not tagged");
+  assert.ok(!report.warnings.some((w) => w.code === "figure_without_image"));
+  // Retagged, the figure is marked once.
+  const again = new mupdf.PDFDocument(tag(out, pagesOf("structure")));
+  assert.equal(pageBody(again.findPage(0)).match(/\/Figure/g)?.length, 1);
+  // When the HTML's images and the page's do not pair up, the figure keeps an empty place in the reading order.
+  const html = pagesOf("structure").pages[0].html.replace('<img alt="">', '<img alt="">'.repeat(2));
+  const r = newReport();
+  const odd = new mupdf.PDFDocument(tag(readFixture("structure.pdf"), { ...pagesOf("structure"), pages: [{ sourcePage: 1, html }] }, {}, r));
+  assert.match(r.warnings.find((w) => w.code === "figure_without_image")?.detail ?? "", /3 images and the page 2/);
+  assert.match(pageBody(odd.findPage(0)), /\/Figure <<\/MCID \d+>> BDC EMC/);
+});
+
+test("a scan's page image is not a figure; an inline image can be", () => {
+  const r = newReport();
+  tag(readFixture("scan-300dpi.pdf"), { ...pagesOf("scan-300dpi"), pages: [{ sourcePage: 1, html: '<img alt="A permit">' }] }, {}, r);
+  assert.match(r.warnings.find((w) => w.code === "figure_without_image")?.detail ?? "", /1 images and the page 0/);
+  const doc = new mupdf.PDFDocument(readFixture("blank-page.pdf"));
+  doc.findPage(0).put("Contents", doc.addStream("q 50 0 0 50 10 10 cm BI /W 2 /H 1 /CS /G /BPC 8 ID ab EI Q", {}));
+  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: '<img alt="A square">' }] }));
+  assert.match(pageBody(out.findPage(0)), /\/Figure <<\/MCID 0>> BDC\nBI .* EI\nEMC/s);
+});
+
 test("a word running off the page edge keeps every letter of its tagged text", () => {
   // Extractors drop a glyph off the page. The source word is monospaced, so its
   // last letter starts just inside; stretched to the same box, ours would not.
@@ -258,14 +287,23 @@ test("a character no font has is reported and left out, not a verification failu
   assert.match(overlay.toString(), /<[0-9a-f]{4}[0-9a-f]{4}> Tj/, "x and a space");
 });
 
-test("marked content left from an old tag tree is reported and stops the PDF/UA claim", () => {
+test("marked content left from an old tag tree is removed from the page's drawing; elsewhere it is reported and stops the PDF/UA claim", () => {
+  const claims = (pdf: Uint8Array) => /pdfuaid:part/.test(new mupdf.PDFDocument(pdf).getTrailer().get("Root", "Metadata").readStream().asString());
   const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const page = doc.findPage(0);
   page.put("Contents", doc.addStream("/P <</MCID 0>> BDC " + page.get("Contents").readStream().asString() + " EMC", {}));
-  const report = newReport();
-  const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
+  let report = newReport();
+  let out = tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report);
+  assert.ok(!report.warnings.some((w) => w.code === "source_marked_content"));
+  assert.ok(claims(out));
+  // Optional content decides what is drawn, so it stays.
+  assert.equal(unmark("/OC /L1 BDC /P <</MCID 0 /Alt (x\\)y)>> BDC 0 0 m EMC EMC /Artifact BMC EMC"), "/OC /L1 BDC   0 0 m   EMC    ");
+  // A form XObject is not rewritten: its ids are reported.
+  page.get("Resources").put("XObject", { Old: doc.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] }) });
+  report = newReport();
+  out = tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report);
   assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 1 /);
-  assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.ok(!claims(out));
   // A form XObject that cannot be decoded is not searched, so it counts as marked.
   const bad = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   bad.findPage(0).get("Resources").put("XObject", { Bad: bad.addRawStream("x", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1], Filter: "FlateDecode", DecodeParms: { Predictor: 2, BitsPerComponent: 7 } }) });

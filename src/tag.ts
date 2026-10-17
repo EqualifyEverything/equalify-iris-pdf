@@ -2,7 +2,7 @@
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
 import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { artifactStreams, drawsNothing, Overlay, pagesWithMcids } from "./pdf/content.ts";
+import { addBody, artifactStreams, drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmark, type PageImage } from "./pdf/content.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
@@ -68,11 +68,15 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
+  for (const i of html.keys()) {
+    const page = doc.findPage(i), body = pageBody(page), clean = unmark(body);
+    if (clean !== body) page.put("Contents", addBody(doc, clean));
+  }
   const marked = pagesWithMcids(doc);
   if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
   const fonts = new FontSet();
-  const written: { page: mupdf.PDFObject; overlay: string }[] = [];
+  const written: { page: mupdf.PDFObject; overlay: string; figures: Map<number, number> }[] = [];
   const overlayText = new Map<number, string>(); // per page index
   let untagged = 0; // pages left as they were
   for (let i = 0; i < pageCount; i++) {
@@ -97,7 +101,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
       warn({ code: "duplicate_text_layer", page: i + 1, detail: "This page's text now exists twice; plain text extractors may show it doubled." });
     }
     if (r.overlay !== null) {
-      written.push({ page: page.getObject(), overlay: r.overlay.ops });
+      written.push({ page: page.getObject(), overlay: r.overlay.ops, figures: r.overlay.figures });
       overlayText.set(i, r.overlay.text);
     }
   }
@@ -116,10 +120,10 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
 
   // Fonts go in last, as one subset holding every glyph the overlays use.
   const fontRefs = fonts.embed(doc, written.map((w) => w.overlay));
-  for (const { page, overlay } of written) {
+  for (const { page, overlay, figures } of written) {
     const res = ownResources(doc, page);
     for (const [name, ref] of Object.entries(fontRefs)) res.get("Font").put(name, ref);
-    page.put("Contents", [...artifactStreams(doc, page), doc.addStream(overlay, {})]);
+    page.put("Contents", [...artifactStreams(doc, page, figures), doc.addStream(overlay, {})]);
   }
   if (fonts.missing.size) warn({ code: "missing_glyph", detail: [...fonts.missing].join("") });
   struct.finish();
@@ -157,7 +161,7 @@ type PageCtx = {
 
 // One page: find its words, align Iris's words to them, write the overlay and
 // the page's part of the structure tree. overlay is null if the page is left alone.
-function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; overlay: { ops: string; text: string } | null; untagged?: boolean } {
+function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; overlay: { ops: string; text: string; figures: Map<number, number> } | null; untagged?: boolean } {
   const n = i + 1;
   const warn = (w: Warning) => ctx.warn({ page: n, ...w });
   const plan = buildPage(html, ctx.lang, `p${n}-`, warn);
@@ -238,7 +242,12 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const pageObj = page.getObject();
   const overlay = new Overlay(ctx.fonts, page.getTransform());
   const links = linkAnnots(page);
-  const e: Emitter = { ...ctx, pageObj, overlay, links, warn, mcids: 0 };
+  const e: Emitter = { ...ctx, pageObj, overlay, links, warn, mcids: 0, images: [], figures: new Map() };
+  if (hasFigure(plan)) {
+    const images = imagesInOrder(pageImages(page), bounds, report.textSource !== "pdf-text");
+    if (images.length === plan.images) e.images = images;
+    else warn({ code: "figure_without_image", detail: `The HTML has ${plan.images} images and the page ${images.length}; its figures do not contain their images.` });
+  }
   for (const k of kids) emit(k as Node, ctx.struct.top, e);
 
   // Annotations that Iris's HTML did not mention still need a place in the tree.
@@ -267,11 +276,49 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     warn({ code: "page_not_tagged", detail: "The HTML for this page holds nothing to tag; it was left untagged." });
     return { report, overlay: null, untagged: true };
   }
-  return { report, overlay: { ops: overlay.toString(), text: overlay.text } };
+  return { report, overlay: { ops: overlay.toString(), text: overlay.text, figures: e.figures } };
 }
 
 type Link = { obj: mupdf.PDFObject; box: Box; uri: string; used: boolean };
-type Emitter = PageCtx & { pageObj: mupdf.PDFObject; overlay: Overlay; links: Link[]; mcids: number };
+type Emitter = PageCtx & {
+  pageObj: mupdf.PDFObject; overlay: Overlay; links: Link[]; mcids: number;
+  images: PageImage[][]; // the page's images, matched in order to the HTML's <img>
+  figures: Map<number, number>; // a content operator drawing a figure's image -> its MCID
+};
+
+const hasFigure = (n: Node): boolean => n.type === "Figure" || n.kids.some((k) => !isRun(k) && hasFigure(k));
+
+// The images a reader would see, in reading order: top to bottom, left to
+// right along a row. Tiles, images sharing a whole edge, are one picture.
+// Hairlines are left out, and so is a scan's page image (scan: the page has no text layer).
+function imagesInOrder(images: PageImage[], page: Box, scan: boolean): PageImage[][] {
+  const groups: { box: Box; images: PageImage[] }[] = [];
+  for (const img of images) {
+    const near = groups.filter((g) => tiles(g.box, img.box));
+    const group = { box: img.box, images: [img] };
+    for (const g of near) {
+      group.box = [Math.min(group.box[0], g.box[0]), Math.min(group.box[1], g.box[1]), Math.max(group.box[2], g.box[2]), Math.max(group.box[3], g.box[3])];
+      group.images.push(...g.images);
+      groups.splice(groups.indexOf(g), 1);
+    }
+    groups.push(group);
+  }
+  const area = (b: Box) => (b[2] - b[0]) * (b[3] - b[1]);
+  const seen = groups.filter((g) => g.box[2] - g.box[0] >= 2 && g.box[3] - g.box[1] >= 2 && !(scan && area(g.box) > area(page) / 2));
+  seen.sort((a, b) => a.box[1] - b.box[1]);
+  const rows: (typeof seen)[] = [];
+  for (const g of seen) {
+    const row = rows.at(-1), mid = (g.box[1] + g.box[3]) / 2;
+    if (row && mid < row[0].box[3]) row.push(g);
+    else rows.push([g]);
+  }
+  return rows.flatMap((r) => r.sort((a, b) => a.box[0] - b.box[0])).map((g) => g.images.sort((a, b) => a.op - b.op));
+}
+
+const close = (a: number, b: number) => Math.abs(a - b) <= 1;
+const tiles = (a: Box, b: Box) =>
+  (close(a[0], b[0]) && close(a[2], b[2]) && (close(a[3], b[1]) || close(b[3], a[1]))) ||
+  (close(a[1], b[1]) && close(a[3], b[3]) && (close(a[2], b[0]) || close(b[2], a[0])));
 
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 // A word running off the page is squeezed onto it: extractors drop glyphs off the page.
@@ -317,8 +364,11 @@ function emit(n: Node, parent: mupdf.PDFObject, e: Emitter) {
     else emit(k, elem, e);
   }
   if (n.type === "Figure" && !n.kids.length) {
-    e.overlay.empty("Figure", struct.mcid(elem, e.pageObj));
-    e.mcids++;
+    // The figure owns its image's drawing; one that cannot be marked leaves an empty place in the reading order.
+    const own = (e.images[n.image!] ?? []).filter((img) => img.wrap);
+    for (const img of own) e.figures.set(img.op, struct.mcid(elem, e.pageObj));
+    if (!own.length) e.overlay.empty("Figure", struct.mcid(elem, e.pageObj));
+    e.mcids += own.length || 1;
   }
   if (n.type === "Link") linkAnnotation(n, elem, e);
 }
