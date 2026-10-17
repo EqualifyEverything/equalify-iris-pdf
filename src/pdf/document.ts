@@ -1,6 +1,7 @@
 // Open a PDF and refuse the ones we must not touch (spec §11).
 import * as mupdf from "mupdf";
 import { IrisPdfError, EXIT, type Warning } from "../report.ts";
+import { unmarkPage } from "./content.ts";
 
 export const MAX_PAGES = 25; // matches Iris's MAX_PDF_PAGES
 
@@ -97,6 +98,7 @@ function untag(doc: mupdf.PDFDocument): boolean {
     const original: mupdf.PDFObject[] = [];
     for (let j = 1; j < contents.length - 2; j++) original.push(contents.get(j));
     page.put("Contents", original);
+    unmarkPage(doc, page); // the brackets around a figure's image
     restored = true;
   }
   return restored;

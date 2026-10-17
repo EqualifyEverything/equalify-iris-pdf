@@ -63,7 +63,7 @@ A PDF with no form fields, such as a scanned form, gets them from the HTML: each
 
 ## How it works
 
-1. The page's original drawing is kept byte for byte and marked as an artifact. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
+1. The page's original drawing is kept and marked as an artifact, except each image a figure shows, which is marked as that figure's content. Its operators are not changed, but marked content left from old tags is removed from it. A PDF that is already tagged loses its old tags first (warning `retagged`); each retag adds to the file's size.
 2. Iris's words are matched to the words on the page (from the text layer, or from Tesseract on a scan). With neither, the words flow down the page in reading order.
 3. An invisible text layer is added with Iris's words at those positions, tagged with the structure from the HTML: headings, lists, tables with their headers, links, figures with alt text, form fields.
 4. The file is saved incrementally: the original bytes are the start of the output. A damaged file is instead rewritten from mupdf's repair of it, with warning `repaired`.
@@ -77,7 +77,7 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
 
-`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `field_not_placed` (a flat form's control with no blank found for it), `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (the page drawing has marked-content ids left from an earlier tag tree), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
+`--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `field_not_placed` (a flat form's control with no blank found for it), `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (a page not in the HTML, or a form XObject, pattern or annotation a page draws, has marked-content ids left from an earlier tag tree), `figure_without_image` (the page's images do not pair up with the HTML's `<img>`, so its figures do not contain their images), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
 ## Review
 
@@ -108,6 +108,7 @@ Form values are personal data. They are never printed, logged, or put in the rep
 
 - **The text exists twice** on a page that already had a text layer: the original, now an artifact, and ours. Screen readers use ours. Plain copy-and-paste tools may show the text doubled. The report warns `duplicate_text_layer`.
 - A table that continues onto the next page is tagged as two tables.
+- A figure's image is found by order: the HTML's `<img>`, decorative ones counted, are paired with the page's images top to bottom, left to right. An image drawn inside a form XObject is not found.
 - `check` needs veraPDF installed.
 - `review` reads only structure tagged by this tool. Its findings are a model's judgment: check them before acting on them. Text in the document can mislead the model, so no findings does not prove a document accessible.
 - A flat form's fields are found from the page's lines, so a blank may be missed (`field_not_placed`). Their text is drawn in Helvetica, which is not embedded, so such an output does not claim PDF/UA-1.

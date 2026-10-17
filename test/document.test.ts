@@ -126,15 +126,15 @@ test("retagging rewrites link descriptions we wrote, and keeps the author's", ()
   assert.equal(contents(own), "Permits");
 });
 
-test("retagging a foreign tagged PDF keeps its marked content, so it claims no PDF/UA", () => {
+test("retagging a foreign tagged PDF drops its marked content, so it can claim PDF/UA", () => {
   const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const page = doc.findPage(0);
   page.put("Contents", doc.addStream("/P <</MCID 0>> BDC " + page.get("Contents").readStream().asString() + " EMC", {}));
   doc.getTrailer().get("Root").put("StructTreeRoot", doc.addObject({ Type: "StructTreeRoot" }));
   const report = newReport();
   const out = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
-  assert.deepEqual(["retagged", "source_marked_content"].map((c) => report.warnings.some((w) => w.code === c)), [true, true]);
-  assert.doesNotMatch(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.deepEqual(["retagged", "source_marked_content"].map((c) => report.warnings.some((w) => w.code === c)), [true, false]);
+  assert.match(out.getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
 
 test("XFA: a dynamic form is refused, a hybrid form loses only its XFA", () => {
