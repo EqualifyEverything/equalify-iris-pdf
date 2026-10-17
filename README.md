@@ -75,7 +75,7 @@ Then two checks run, and if either fails nothing is written (exit 2):
 
 ## The report
 
-A page that could not be tagged is left as it was, with a warning, and the run still exits 0. Read the report to catch it; the output then makes no PDF/UA-1 claim.
+A page that could not be tagged is left untagged, with a warning, and the run still exits 0. Its drawing renders as before, but if the HTML had the page, old marked content is removed from it. Read the report to catch it; the output then makes no PDF/UA-1 claim.
 
 `--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `field_not_placed` (a flat form's control with no blank found for it), `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (a page not in the HTML, or a form XObject, pattern or annotation a page draws, has marked-content ids left from an earlier tag tree), `figure_without_image` (the page's images do not pair up with the HTML's `<img>`, so its figures do not contain their images), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
