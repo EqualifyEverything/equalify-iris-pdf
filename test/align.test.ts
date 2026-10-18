@@ -68,6 +68,9 @@ test("joinHyphenated rejoins a word broken at a line end", () => {
   const joined = joinHyphenated([w("per-", 0), w("mit", 12), w("well-", 12), w("Known", 24)]);
   assert.deepEqual(joined.map((t) => t.norm), ["permit", "well", "known"]);
   assert.deepEqual(joined[0].words, [0, 1]);
+  // Lines set close, their boxes overlapping.
+  assert.deepEqual(joinHyphenated([w("per-", 0), w("mit", 9)]).map((t) => t.norm), ["permit"]);
+  assert.deepEqual(joinHyphenated([w("well-", 0), w("made", 3)]).map((t) => t.norm), ["well", "made"]);
 });
 
 test("furniture: page edges, bare punctuation and the page number", () => {

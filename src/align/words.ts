@@ -4,8 +4,9 @@
 // A box in mupdf's page space: x0, y0 top, x1, y1 bottom, in points.
 export type Box = [number, number, number, number];
 
-// A word as it sits on the page, from the text layer or from OCR.
-export type PageWord = { text: string; box: Box; baseline: number; size: number };
+// A word as it sits on the page, from the text layer or from OCR. codes: for
+// each of its characters, the id of the page's character code that draws it, if every one is known.
+export type PageWord = { text: string; box: Box; baseline: number; size: number; codes?: number[] };
 
 // Chinese, Japanese and Korean are written without spaces, so each character
 // is its own token.
@@ -50,7 +51,7 @@ export function joinHyphenated(words: PageWord[]): { norm: string; words: number
   const out: { norm: string; words: number[] }[] = [];
   for (let i = 0; i < words.length; i++) {
     const w = words[i], next = words[i + 1];
-    const lineEnd = next && next.box[1] > w.box[3] - 1; // the next word starts on a lower line
+    const lineEnd = next && next.box[1] > (w.box[1] + w.box[3]) / 2; // the next word starts on a lower line, though their boxes may overlap
     if (lineEnd && /\p{L}-$/u.test(w.text) && /^\p{Ll}/u.test(next.text)) {
       out.push({ norm: normalize(w.text.slice(0, -1) + next.text), words: [i, i + 1] });
       i++;

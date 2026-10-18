@@ -327,10 +327,9 @@ test("page content is read from the end, each stream once, up to 32 MB a page", 
   assert.ok(performance.now() - t < 2000);
 });
 
-test("a tree whose marked text this tool cannot decode is refused", async () => {
+test("a tree whose marked content holds no text is refused", async () => {
   const { doc } = tagFixture("text-simple");
-  const page = doc.findPage(0);
-  page.put("Contents", doc.addStream("/P <</MCID 0>> BDC BT /F1 12 Tf (Hello) Tj ET EMC /P <</MCID 1>> BDC EMC", {}));
+  doc.findPage(0).put("Contents", doc.addStream("/P <</MCID 0>> BDC 0 0 m 10 10 l S EMC /P <</MCID 1>> BDC EMC", {}));
   await assert.rejects(review(doc.saveToBuffer("").asUint8Array(), stub(reply([]))), { code: "no_readable_structure" });
 });
 

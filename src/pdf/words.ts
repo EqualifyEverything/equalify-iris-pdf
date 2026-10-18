@@ -1,12 +1,14 @@
 // The words of a page's text layer, with their boxes, in the page's own order.
 import * as mupdf from "mupdf";
 import { isCJK, type Box, type PageWord } from "../align/words.ts";
+import type { KeyedChar } from "./shows.ts";
 
 // Page content only: form fields and annotations are tagged by reference, not
-// as text.
-export function textLayerWords(page: mupdf.PDFPage): PageWord[] {
+// as text. keyed: the same characters, from keyedChars(); each word then gets
+// the codes that draw it, unless one of its characters has no known code.
+export function textLayerWords(page: mupdf.PDFPage, keyed?: KeyedChar[]): PageWord[] {
   const words: PageWord[] = [];
-  let cur: PageWord | null = null;
+  let cur: PageWord | null = null, n = 0, same = !!keyed;
   const flush = () => {
     if (cur) words.push(cur);
     cur = null;
@@ -21,19 +23,25 @@ export function textLayerWords(page: mupdf.PDFPage): PageWord[] {
     },
     endLine: flush,
     onChar(c, origin, _font, size, quad) {
+      const k = keyed?.[n++];
+      if (k?.c !== c) same = false;
       c = fullChar(c, lines[line]?.[at++]);
       if (/\s/.test(c)) return flush();
       const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
       const box: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       const alone = isCJK(c); // a word by itself, as in splitWords
       if (alone || (cur && Math.abs(cur.size - size) > 0.5)) flush();
-      if (!cur) cur = { text: "", box, baseline: origin[1], size };
+      if (!cur) cur = { text: "", box, baseline: origin[1], size, codes: [] };
       cur.text += c;
+      if (cur.codes && k?.key) cur.codes.push(k.key);
+      else delete cur.codes;
       cur.box = [Math.min(cur.box[0], box[0]), Math.min(cur.box[1], box[1]), Math.max(cur.box[2], box[2]), Math.max(cur.box[3], box[3])];
       if (alone) flush();
     },
   });
   flush();
+  // The two readings must agree character for character, or no code is known.
+  if (!same || n !== keyed?.length) for (const w of words) delete w.codes;
   return words;
 }
 
