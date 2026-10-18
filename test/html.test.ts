@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPage, isRun, wordsInOrder, type FormRef, type Node } from "../src/html/build.ts";
+import { buildPage, firstHeading, isRun, wordsInOrder, type FormRef, type Node } from "../src/html/build.ts";
 import type { Warning } from "../src/report.ts";
 
 function build(html: string) {
@@ -21,6 +21,13 @@ test("block elements map to PDF structure types", () => {
     'H1("Title"), P("Some body text."), BlockQuote("Q")');
   assert.equal(kids("loose text"), 'P("loose text")');
   assert.equal(kids("<nav aria-label=Menu><p>x</p></nav>"), 'Sect(P("x"))');
+});
+
+test("headings move up together when the document starts below h1", () => {
+  const top = buildPage("<h3>Results</h3><h4>Setup</h4><h2>Next</h2>", "en", "p1-", () => {}, 2);
+  assert.deepEqual(top.kids.map((k) => (k as Node).type), ["H1", "H2", "H1"]);
+  assert.equal(firstHeading("<script><h1>x</h1></script><p>a</p><section><h3>b</h3></section><h1>c</h1>"), 3);
+  assert.equal(firstHeading("<p>none</p>"), undefined);
 });
 
 test("lists get a label and a body per item", () => {

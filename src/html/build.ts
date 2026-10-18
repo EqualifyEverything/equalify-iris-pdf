@@ -50,10 +50,11 @@ type Ctx = {
   wrapped?: Word[]; // an enclosing <label>'s words
   ths: { n: number }; // TH cells numbered so far, so their ids are unique on the page
   images: { n: number };
+  shift: number; // heading levels to move up, so the document's first heading is H1
   warn: (w: Warning) => void;
 };
 
-export function buildPage(html: string, lang: string, prefix: string, warn: (w: Warning) => void): Node {
+export function buildPage(html: string, lang: string, prefix: string, warn: (w: Warning) => void, shift = 0): Node {
   const root = parseHtml(html);
   const labels = new Map<string, string>(), notes = new Set<string>();
   walk(root, (e) => {
@@ -61,7 +62,7 @@ export function buildPage(html: string, lang: string, prefix: string, warn: (w: 
     if (e.tag === "a" && e.attrs.href?.startsWith("#")) notes.add(e.attrs.href.slice(1));
   });
   const top: Node = { type: "#root", kids: [] };
-  const ctx: Ctx = { lang, prefix, labels, notes, warn, labelWords: new Map(), questions: new Map(), collect: [], ths: { n: 0 }, images: { n: 0 } };
+  const ctx: Ctx = { lang, prefix, labels, notes, warn, labelWords: new Map(), questions: new Map(), collect: [], ths: { n: 0 }, images: { n: 0 }, shift };
   for (const k of root.kids) build(k, top, ctx);
   top.images = ctx.images.n;
   // Text directly in the fragment, outside any block, becomes a paragraph.
@@ -102,6 +103,8 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return;
     }
     case "li": return listItem(e, parent, "", inner);
+    case "h1": case "h2": case "h3": case "h4": case "h5": case "h6":
+      return kids(add(`H${Math.max(1, Number(e.tag[1]) - ctx.shift)}`), inner);
     case "dl": {
       const list = add("L");
       // Each <dt> starts an item; its <dd> follow it into the same LI.
@@ -280,9 +283,17 @@ const word = (text: string): Word => ({ text, norm: normalize(text) });
 const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
-function walk(e: Elem, fn: (e: Elem) => void) {
+// The level of the HTML's first heading, if it has one.
+export function firstHeading(html: string): number | undefined {
+  let level: number | undefined;
+  walk(parseHtml(html), (e) => { if (!level && /^h[1-6]$/.test(e.tag)) level = Number(e.tag[1]); }, SKIP);
+  return level;
+}
+
+function walk(e: Elem, fn: (e: Elem) => void, skip?: Set<string>) {
+  if (skip?.has(e.tag)) return;
   fn(e);
-  for (const k of e.kids) if (typeof k !== "string") walk(k, fn);
+  for (const k of e.kids) if (typeof k !== "string") walk(k, fn, skip);
 }
 
 // Every word in reading order, each with the index of its top-level block.

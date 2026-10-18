@@ -44,6 +44,19 @@ test("an equation's Formula passes veraPDF", { skip: noVera }, () => {
   assert.equal(passed, true, message);
 });
 
+test("a page cut from mid-document, starting at h2, claims PDF/UA-1 and passes veraPDF", { skip: noVera }, () => {
+  const pages = pagesOf("text-embedded");
+  pages.pages[0].html = pages.pages[0].html.replace("<h2>", "<h3>").replace("</h2>", "</h3>").replace("<h1>", "<h2>").replace("</h1>", "</h2>");
+  const report = newReport();
+  const out = tag(readFixture("text-embedded.pdf"), pages, {}, report);
+  assert.equal(report.warnings.find((w) => w.code === "headings_shifted")?.detail, "The first heading is h2; every heading is tagged 1 level higher, so the first is H1.");
+  const path = join(dir, "first-h2.pdf");
+  writeFileSync(path, out);
+  assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);
+  const { passed, message } = checkPdfUa(path);
+  assert.equal(passed, true, message);
+});
+
 for (const [name, conforms] of CORPUS) {
   test(`${name}: ${conforms ? "claims PDF/UA-1 and passes veraPDF" : "does not claim PDF/UA-1"}`, { skip: noVera || (SCANS.has(name) && noOcr) }, () => {
     const { out, doc } = tagFixture(name);
