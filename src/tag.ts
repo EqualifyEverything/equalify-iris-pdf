@@ -11,8 +11,8 @@ import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, headingShift, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
 import { joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
-import { align, matchRuns, MAX_WORDS } from "./align/align.ts";
-import { isFurniture } from "./align/classify.ts";
+import { align, matchMarks, matchRuns, MAX_WORDS } from "./align/align.ts";
+import { isFurniture, isPageNumber } from "./align/classify.ts";
 import { ocrWords } from "./ocr/tesseract.ts";
 import { FieldMaker, fieldNames } from "./form/create.ts";
 import { comparePixels } from "./verify/pixels.ts";
@@ -238,11 +238,14 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     throw new IrisPdfError("too_many_words", `Page ${n} has more than ${MAX_WORDS} words.`);
   const htmlNorms = ordered.map((o) => o.word.norm), pageNorms = tokens.map((t) => t.norm);
   const aligned = align(htmlNorms, pageNorms), complete = aligned.complete;
-  const match = matchRuns(htmlNorms, pageNorms, aligned.match);
+  const pageTexts = tokens.map((t) => t.words.map((j) => words[j].text).join(""));
+  const bounds = page.getBounds() as Box, atNumber = (t: number) => tokens[t].words.some((j) => isPageNumber(words[j], bounds[3] - bounds[1], n));
+  // Iris leaves the page number out, so an HTML word matched to it is something else, such as a footnote's "1".
+  const match = matchMarks(ordered.map((o) => o.word.text), pageTexts, matchRuns(htmlNorms, pageNorms, aligned.match)).map((t) => (t >= 0 && atNumber(t) ? -1 : t));
   const sharing = new Map<number, number[]>(); // page token -> the HTML words on it
   match.forEach((t, k) => t >= 0 && sharing.set(t, [...(sharing.get(t) ?? []), k]));
   if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
-  const blockOf = new Map<number, number>(), bounds = page.getBounds() as Box;
+  const blockOf = new Map<number, number>();
   const matched = new Set<Word>();
   // In place: the page's codes each HTML word owns, and the text a reader is given for them if it differs.
   const codes = new Map<Word, number[]>(), actual = new Map<Word, string>();
@@ -253,15 +256,15 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     }
     report.matched++;
     matched.add(ordered[k].word);
-    const on = tokens[t].words.map((j) => words[j]), w = ordered[k].word;
-    // A page number or running header the HTML happens to match stays an artifact.
-    if (sharing.get(t)!.length === 1 && on.every((p) => p.codes && !isFurniture(p, bounds[3] - bounds[1], n))) {
+    const on = tokens[t].words.map((j) => words[j]), w = ordered[k].word, ks = sharing.get(t)!;
+    if (k === ks[0] && on.every((p) => p.codes)) { // once per page word
       const drawn = [...on.map((p) => p.text).join("")], all = on.flatMap((p) => p.codes!);
-      const split = on.length === 1 ? beside(drawn, ordered.map((o, j) => (j === k || match[j] === -1 ? o.word.text : null)), k) : null;
-      if (drawn.join("").normalize("NFKC") === w.text.normalize("NFKC")) codes.set(w, unique(all));
+      const text = (j: number) => (ks.includes(j) || match[j] === -1 ? ordered[j]?.word.text ?? null : null);
+      const split = on.length === 1 ? spread(drawn, text, k, ks.at(-1)!) : null;
+      if (ks.length === 1 && drawn.join("").normalize("NFKC") === w.text.normalize("NFKC")) codes.set(w, unique(all));
       else if (split) for (const [j, from, to] of split) codes.set(ordered[j].word, unique(all.slice(from, to)));
-      else if (tokens[t].norm === w.norm) {
-        // Spelled with other marks, such as a line-end hyphen: read as the HTML's word.
+      else if (ks.length === 1 && (tokens[t].norm === w.norm || marksOf(drawn.join("")) === marksOf(w.text))) {
+        // Spelled with other marks, such as a line-end hyphen, or misread by OCR: read as the HTML's word.
         codes.set(w, unique(all));
         actual.set(w, w.text);
       } // else the page draws more than this word: it stays an artifact, and the word goes in the overlay.
@@ -447,22 +450,41 @@ const tiles = (a: Box, b: Box) =>
 
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const unique = (xs: number[]) => [...new Set(xs)];
-// A page word drawn as HTML word k and the unmatched HTML words beside it
-// ("website.1" for "website", ".", "1"): each one's characters [from, to) of
-// it, or null. texts: each HTML word's text, null if it is matched. What is left over must be punctuation.
-function beside(drawn: string[], texts: (string | null)[], k: number): [number, number, number][] | null {
-  const punct = (cs: string[]) => cs.every((c) => !/[\p{L}\p{N}]/u.test(c));
-  const word = [...texts[k] ?? ""], same = (at: number, w: string[]) => w.length > 0 && w.every((c, i) => drawn[at + i] === c);
-  for (let at = 0; at + word.length <= drawn.length; at++) {
-    if (!same(at, word)) continue;
-    const out: [number, number, number][] = [[k, at, at + word.length]];
-    let end = at + word.length, start = at;
-    for (let j = k + 1, w; (w = [...texts[j] ?? ""]) && same(end, w); j++) out.push([j, end, (end += w.length)]);
-    for (let j = k - 1, w; (w = [...texts[j] ?? ""]) && same(start - w.length, w); j--) out.push([j, (start -= w.length), start + w.length]);
-    if (punct(drawn.slice(0, start)) && punct(drawn.slice(end))) return out;
+const marksOf = (s: string) => s.normalize("NFKC").replace(/[\p{L}\p{N}]/gu, "");
+// A page word drawn as HTML words lo..hi, and the unmatched HTML words
+// beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each
+// one's characters [from, to) of it, or null. text(j): HTML word j's text,
+// null if it is matched elsewhere. Characters compare as NFKC; what no word
+// claims must be punctuation, and stays an artifact.
+function spread(drawn: string[], text: (j: number) => string | null, lo: number, hi: number): [number, number, number][] | null {
+  const nf = (c: string) => c.normalize("NFKC"), punct = (c: string) => !/[\p{L}\p{N}]/u.test(c);
+  const eat = (p: number, w: string) => {
+    const want = nf(w);
+    let got = "";
+    while (want && got.length < want.length && p < drawn.length) if (!want.startsWith((got += nf(drawn[p++])))) return -1;
+    return want && got === want ? p : -1;
+  };
+  const out: [number, number, number][] = [];
+  let p = 0, start = -1;
+  for (let j = lo; j <= hi; j++) {
+    const w = text(j);
+    if (w === null) return null;
+    let e = eat(p, w);
+    while (e < 0 && p < drawn.length && punct(drawn[p])) e = eat(++p, w);
+    if (e < 0) return null;
+    if (start < 0) start = p;
+    out.push([j, p, (p = e)]);
   }
-  return null;
+  for (let j = hi + 1, w, e; (w = text(j)) !== null && (e = eat(p, w)) >= 0; j++) out.push([j, p, (p = e)]);
+  for (let j = lo - 1, w; (w = text(j)) !== null; j--) {
+    const s = start - [...nf(w)].length;
+    if (s < 0 || drawn.slice(s, start).map(nf).join("") !== nf(w)) break;
+    out.push([j, s, start]);
+    start = s;
+  }
+  return drawn.slice(0, start).every(punct) && drawn.slice(p).every(punct) ? out : null;
 }
+
 // A word running off the page is squeezed onto it: extractors drop glyphs off the page.
 const placed = (w: PageWord, page: Box): Placed =>
   ({ box: [Math.max(w.box[0], page[0]), w.box[1], Math.min(w.box[2], page[2]), w.box[3]], baseline: w.baseline, size: w.size });

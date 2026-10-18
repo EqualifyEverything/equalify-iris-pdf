@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { align, matchRuns } from "../src/align/align.ts";
+import { align, matchMarks, matchRuns } from "../src/align/align.ts";
 import { isFurniture } from "../src/align/classify.ts";
 import { joinHyphenated, normalize, splitWords, type PageWord } from "../src/align/words.ts";
 
@@ -56,6 +56,16 @@ test("matchRuns gives HTML words run together on the page that page word", () =>
   // Not when the words spell something else, or the anchors are out of page order.
   assert.deepEqual(matchRuns(["a", "2", "y", "b"], ["a", "2x", "b"], [0, -1, -1, 2]), [0, -1, -1, 2]);
   assert.deepEqual(matchRuns(["a", "2", "x", "b"], ["b", "2x", "a"], [2, -1, -1, 0]), [2, -1, -1, 0]);
+});
+
+test("matchMarks matches punctuation between matched words, one for one", () => {
+  assert.deepEqual(matchMarks(["x", "+", "=", "y"], ["x", "+", "=", "y"], [0, -1, -1, 3]), [0, 1, 2, 3]);
+  // NFKC: a full-width "＝" is "=".
+  assert.deepEqual(matchMarks(["x", "="], ["x", "＝", "y"], [0, -1]), [0, -1]);
+  assert.deepEqual(matchMarks(["x", "=", "y"], ["x", "＝", "y"], [0, -1, 2]), [0, 1, 2]);
+  // Not when the gaps differ in length, or the marks differ.
+  assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "+", "-", "y"], [0, -1, 3]), [0, -1, 3]);
+  assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "-", "y"], [0, -1, 2]), [0, -1, 2]);
 });
 
 test("align tolerates OCR errors in longer words", () => {

@@ -6,8 +6,10 @@ import type { KeyedChar } from "./shows.ts";
 // Page content only: form fields and annotations are tagged by reference, not
 // as text. keyed: the same characters, from keyedChars(); each word then gets
 // the codes that draw it, unless one of its characters has no known code.
+// Spaces are left out of the match: mupdf adds its own where a show is split.
 export function textLayerWords(page: mupdf.PDFPage, keyed?: KeyedChar[]): PageWord[] {
   const words: PageWord[] = [];
+  keyed = keyed?.filter((k) => !/\s/.test(k.c));
   let cur: PageWord | null = null, n = 0, same = !!keyed;
   const flush = () => {
     if (cur) words.push(cur);
@@ -23,10 +25,10 @@ export function textLayerWords(page: mupdf.PDFPage, keyed?: KeyedChar[]): PageWo
     },
     endLine: flush,
     onChar(c, origin, _font, size, quad) {
-      const k = keyed?.[n++];
-      if (k?.c !== c) same = false;
       c = fullChar(c, lines[line]?.[at++]);
       if (/\s/.test(c)) return flush();
+      const k = keyed?.[n++];
+      if (k && k.c !== c) same = false;
       const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
       const box: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       const alone = isCJK(c); // a word by itself, as in splitWords
@@ -48,12 +50,12 @@ export function textLayerWords(page: mupdf.PDFPage, keyed?: KeyedChar[]): PageWo
 // mupdf.js's walk gives each character's low 16 bits only (String.fromCharCode),
 // so 𝑥 (U+1D465) arrives as U+D465. Its JSON has the whole code points, line
 // by line in the same order; one is used only where its low bits agree.
-function fullLines(stext: mupdf.StructuredText): string[][] {
+export function fullLines(stext: mupdf.StructuredText): string[][] {
   const blocks: { type: string; lines?: { text: string }[] }[] = JSON.parse(stext.asJSON()).blocks;
   return blocks.filter((b) => b.type === "text").flatMap((b) => (b.lines ?? []).map((l) => [...l.text]));
 }
 
-function fullChar(c: string, full: string | undefined): string {
+export function fullChar(c: string, full: string | undefined): string {
   const u = full?.codePointAt(0);
   return u !== undefined && u > 0xffff && (u & 0xffff) === c.charCodeAt(0) ? full! : c;
 }

@@ -532,9 +532,14 @@ test("a character past U+FFFF in the source text matches the HTML", () => {
   const font = src.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", ToUnicode: src.addStream(cmap, {}) });
   src.insertPage(-1, src.addPage([0, 0, 612, 792], 0, src.addObject({ Font: { F1: font } }), "BT /F1 24 Tf 72 700 Td (If 2x = 4) Tj ET"));
   const report = newReport();
-  tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>If 2𝑥 = 4</p>" }] }, {}, report);
+  const out = tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>If 2𝑥 = 4</p>" }] }, {}, report);
   assert.ok(!report.warnings.some((w) => w.code === "unmatched_text"));
   assert.equal(report.pages[0].addedFromHtml, 0);
+  // All of it, "=" too, is tagged where it is, and reads back whole.
+  assert.equal(report.pages[0].redrawn, 0);
+  const doc = new mupdf.PDFDocument(out);
+  assert.equal(doc.loadPage(0).toStructuredText("").asText().trim(), "If 2𝑥 = 4");
+  assert.equal(find(structTree(doc), "P")[0].text, "If 2𝑥 = 4");
 });
 
 test("words sharing a page word split its box across, by length", () => {
@@ -581,6 +586,49 @@ test("a word hyphenated across lines is one element part, read as the HTML's wor
   assert.equal(report.pages[0].redrawn, 0);
 });
 
+test("a page tagged in place with no overlay gets its own drawing back on a retag", () => {
+  const { doc } = tagContent("BT /F1 12 Tf 20 200 Td (Hello world) Tj ET", "<p>Hello world</p>");
+  assert.equal(doc.findPage(0).get("Contents").length, 3, "no overlay");
+  const again = new mupdf.PDFDocument(tag(doc.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [] }));
+  assert.doesNotMatch(pageBody(again.findPage(0)), /BDC|BMC|EMC/);
+});
+
+test("a word OCR misread is tagged where it is, read as the HTML's word", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (The forescattered electrons) Tj ET", "<p>The forscattered electrons</p>");
+  assert.equal(find(root, "Span")[0].dict.get("ActualText").asString(), "forscattered");
+  assert.equal(readingOrder(root), "The forscattered electrons");
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
+test("lines padded with spaces, one show each, are tagged where they are", () => {
+  // As cupsfilter writes plain text: each line one Tj, padded out to the margin.
+  const pad = " ".repeat(60);
+  const { root, report } = tagContent(`BT /F1 9 Tf 1 0 0 1 20 200 Tm (Lot 5 closes.${pad}) Tj ET BT /F1 9 Tf 1 0 0 1 20 188 Tm (Use Lot 7.${pad}) Tj ET`, "<p>Lot 5 closes.</p><p>Use Lot 7.</p>");
+  assert.equal(readingOrder(root), "Lot 5 closes. Use Lot 7.");
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
+test("operators run together in the source are tagged where they are", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td 0 Tc[(Hello world)]TJ ET", "<p>Hello world</p>");
+  assert.equal(readingOrder(root), "Hello world");
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
+test("a page word that holds several HTML words is split between them", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (If 2x = 4) Tj ET", "<p>If 2 x = 4</p>");
+  assert.equal(readingOrder(root), "If 2x = 4"); // "2" and "x" each own their part of "2x"
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
+test("only the page number at the page's edge stays an artifact", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (1. First) Tj ET BT /F1 9 Tf 150 10 Td (1) Tj ET", "<p>1. First</p><p>1</p>");
+  assert.equal(readingOrder(root), "1. First 1");
+  // The body's "1." is tagged where it is. The HTML's "1" is not the page
+  // number: it is added like any word the page lacks, not drawn on top of it.
+  assert.deepEqual([report.pages[0].redrawn, report.pages[0].addedFromHtml, report.pages[0].furniture], [0, 1, 1]);
+  assert.ok(!report.warnings.some((w) => w.code === "in_place_failed"));
+});
+
 test("text drawn invisibly, as OCR leaves it, or only as a clip, is tagged where it is", () => {
   const { doc, root, report } = tagContent("BT 3 Tr /F1 12 Tf 20 200 Td (Hello world) Tj ET q BT 7 Tr /F1 30 Tf 20 100 Td (Clip) Tj ET 0 0 1 rg 0 0 300 300 re f Q",
     "<h1>Hello</h1><p>world</p><p>Clip</p>");
@@ -600,7 +648,7 @@ test("link text followed by its period is tagged in place, the period split off"
   const { doc, report } = tagFixture("links");
   assert.equal(report.pages[0].redrawn, 0);
   assert.ok(!report.warnings.some((w) => w.code === "in_place_failed" || w.code === "duplicate_text_layer"));
-  assert.match(pageBody(doc.findPage(0)), /\/Link <<\/MCID \d+>> BDC <[0-9a-f]+> Tj EMC .*<2e> Tj/);
+  assert.match(pageBody(doc.findPage(0)), /\/Link <<\/MCID \d+>> BDC <[0-9a-f]+> Tj\s+EMC\s+\/P <<\/MCID \d+>> BDC <2e> Tj/);
 });
 
 test("a page number the HTML matches stays an artifact, and a word the page draws with more is not hidden", () => {
