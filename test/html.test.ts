@@ -33,6 +33,13 @@ test("headings move up together when the document starts below h1", () => {
   assert.deepEqual(headingShift(["<p>a</p><h1>b</h1><h3>c</h3>"], "en"), { shift: 0 });
 });
 
+test("a block's last word is followed by a space, so table cells do not run together", () => {
+  const words = wordsInOrder(build("<table><tr><td>Block</td><td><b>Rate</b></td></tr></table><p>Inputs</p>").top);
+  assert.deepEqual(words.map((o) => o.word.space), [true, true, true]);
+  const inline = wordsInOrder(build("<p>re<b>use</b>d</p>").top);
+  assert.deepEqual(inline.map((o) => o.word.space ?? false), [false, false, true]);
+});
+
 test("lists get a label and a body per item", () => {
   assert.equal(kids("<ol start=3><li>a</li><li>b</li></ol>"),
     'L(LI(Lbl("3."), LBody("a")), LI(Lbl("4."), LBody("b")))');

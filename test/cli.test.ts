@@ -64,7 +64,7 @@ test("approximately placed blocks do not run together, nested or not", () => {
   writeFileSync(pages, JSON.stringify({ lang: "en", title: "Fees", pages: [{ sourcePage: 1, html }] }));
   const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", pages, "--out", out], { encoding: "utf8", env: { PATH: "" } });
   assert.equal(r.status, 0, r.stderr);
-  const lines = new mupdf.PDFDocument(readFileSync(out)).loadPage(0).toStructuredText("").asText().split("\n").filter(Boolean);
+  const lines = new mupdf.PDFDocument(readFileSync(out)).loadPage(0).toStructuredText("").asText().split("\n").map((l) => l.trimEnd()).filter(Boolean);
   assert.deepEqual(lines, ["Fees", "• One link", "• Two", "Year", "2024", "See the form for tag.", "Permit A paper.", "x".repeat(150)]);
 });
 
