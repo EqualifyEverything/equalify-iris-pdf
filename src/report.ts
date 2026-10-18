@@ -13,6 +13,7 @@ export type PageReport = {
   addedFromHtml: number;
   furniture: number;
   lost: number;
+  redrawn: number; // words of the page's own text drawn again in the overlay
   mcids: number;
 };
 

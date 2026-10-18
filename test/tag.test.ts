@@ -67,7 +67,12 @@ test("text-simple: headings and paragraphs, running header left as an artifact",
   const { doc, report } = tagFixture("text-simple");
   assert.deepEqual(structTree(doc).kids.map((k) => k.type), ["H1", "P", "H2", "P"]);
   assert.ok(report.pages[0].furniture > 0);
-  assert.ok(report.warnings.some((w) => w.code === "duplicate_text_layer"));
+  // The page's own text is tagged where it is: none is drawn twice.
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.ok(!report.warnings.some((w) => w.code === "duplicate_text_layer"));
+  const words = doc.loadPage(0).toStructuredText("").asText().split(/\s+/).filter(Boolean);
+  const before = new mupdf.PDFDocument(readFixture("text-simple.pdf")).loadPage(0).toStructuredText("").asText().split(/\s+/).filter(Boolean);
+  assert.deepEqual(words, before);
   const contents = doc.findPage(0).get("Contents");
   assert.equal(contents.get(0).readStream().asString().trim(), "/Artifact BMC q");
 });
@@ -131,10 +136,11 @@ test("links: the Link element owns its annotation, which gets the link text", ()
 });
 
 test("cjk: every character is recoverable through ToUnicode", () => {
-  const { doc, report } = tagFixture("cjk");
-  const text = readingOrder(structTree(doc)).replace(/\s/g, "");
   const want = pagesOf("cjk").pages[0].html.replace(/<[^>]+>|\s/g, "");
-  assert.equal(text, want);
+  assert.equal(readingOrder(structTree(tagFixture("cjk").doc)).replace(/\s/g, ""), want);
+  // Drawn in the overlay, through our font's /ToUnicode.
+  const { doc, report } = tagFixture("cjk", { inPlace: false });
+  assert.equal(readingOrder(structTree(doc)).replace(/\s/g, ""), want);
   assert.ok(!report.warnings.some((w) => w.code === "missing_glyph"));
   const cid = doc.findPage(0).get("Resources", "Font", "IrisF1", "DescendantFonts").get(0);
   assert.equal(cid.get("CIDToGIDMap").asName(), "Identity");
@@ -545,4 +551,47 @@ test("math the page writes as one word matches Iris's separate tokens", () => {
   const html = "<p>Solve <math><mn>5</mn><mi>x</mi><mo>=</mo><mn>10</mn></math> now</p>";
   tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html }] }, {}, report);
   assert.deepEqual([report.pages[0].addedFromHtml, report.pages[0].lost], [0, 0]);
+});
+
+// One page drawn with Helvetica from `content`, tagged from `html`.
+function tagContent(content: string, html: string) {
+  const src = new mupdf.PDFDocument();
+  src.insertPage(-1, src.addPage([0, 0, 300, 300], 0, src.addObject({ Font: { F1: src.addSimpleFont(new mupdf.Font("Helvetica")) } }), content));
+  const pdf = src.saveToBuffer("").asUint8Array().slice(), report = newReport();
+  const doc = new mupdf.PDFDocument(tag(pdf, { lang: "en", title: "t", pages: [{ sourcePage: 1, html }] }, {}, report));
+  const text = (d: mupdf.PDFDocument) => d.loadPage(0).toStructuredText("").asText();
+  return { doc, report, root: structTree(doc), before: text(new mupdf.PDFDocument(pdf)), after: text(doc) };
+}
+
+test("the page's own text is tagged where it is, one show split between elements", () => {
+  const { doc, report, root, before, after } = tagContent("BT /F1 12 Tf 20 200 Td (Hello world) Tj ET", "<h1>Hello</h1><p>world</p>");
+  assert.deepEqual(root.kids.map((k) => [k.type, k.text]), [["H1", "Hello"], ["P", "world"]]);
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.equal(after, before, "no word drawn twice");
+  assert.equal(report.verification.pixels, "identical-outside-fields");
+  assert.ok(!report.warnings.some((w) => w.code === "in_place_failed"));
+  assert.doesNotMatch(pageBody(doc.findPage(0)), /3 Tr/, "no empty overlay");
+});
+
+test("a word hyphenated across lines is one element part, read as the HTML's word", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (An exam-) Tj 0 -14 Td (ple today.) Tj ET", "<p>An example today.</p>");
+  const span = find(root, "Span")[0];
+  assert.equal(span.dict.get("ActualText").asString(), "example");
+  assert.equal(readingOrder(root), "An example today.");
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
+test("text drawn invisibly, as OCR leaves it, or only as a clip, is tagged where it is", () => {
+  const { doc, root, report } = tagContent("BT 3 Tr /F1 12 Tf 20 200 Td (Hello world) Tj ET q BT 7 Tr /F1 30 Tf 20 100 Td (Clip) Tj ET 0 0 1 rg 0 0 300 300 re f Q",
+    "<h1>Hello</h1><p>world</p><p>Clip</p>");
+  assert.deepEqual(root.kids.map((k) => k.text), ["Hello", "world", "Clip"]);
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.match(pageBody(doc.findPage(0)), /3 Tr \/F1 12 Tf.*7 Tr/s);
+});
+
+test("marked text is read through named properties too", () => {
+  const doc = new mupdf.PDFDocument();
+  const res = doc.addObject({ Font: { F1: doc.addSimpleFont(new mupdf.Font("Helvetica")) }, Properties: { M0: { MCID: 0 } } });
+  doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, res, "/P /M0 BDC BT /F1 12 Tf 20 200 Td (Hello) Tj ET EMC"));
+  assert.deepEqual([...mcidText(doc.findPage(0), { doc, index: 0 })], [[0, "Hello"]]);
 });

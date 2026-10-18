@@ -1,7 +1,10 @@
 // Reads a PDF tagged by this tool back the way a screen reader would: the
 // structure tree, and the text of the marked content each element points at.
-// Only our overlay's text is decoded (hex glyph ids through /ToUnicode).
+// Our overlay's text is decoded through /ToUnicode; text marked where the
+// page draws it is read through mupdf (keyedChars).
 import * as mupdf from "mupdf";
+import { operators, pageBody } from "./content.ts";
+import { keyedBody, keyedChars, SHOW } from "./shows.ts";
 import { IrisPdfError, EXIT } from "../report.ts";
 
 const MAX_DEPTH = 64;
@@ -33,9 +36,10 @@ function toUnicode(font: mupdf.PDFObject): Map<number, string> {
   return map;
 }
 
-// The text inside each marked-content id on a page, from our overlay. One
-// linear pass: a BDC with no EMC must not cost a scan of the rest.
-export function mcidText(page: mupdf.PDFObject): Map<number, string> {
+// The text inside each marked-content id on a page. One linear pass: a BDC
+// with no EMC must not cost a scan of the rest. With `at`, the page itself is
+// read too, and its text wins where it has any.
+export function mcidText(page: mupdf.PDFObject, at?: { doc: mupdf.PDFDocument; index: number }): Map<number, string> {
   const fonts = page.get("Resources", "Font");
   const maps = new Map<string, Map<number, string>>();
   const out = new Map<number, string>();
@@ -65,6 +69,45 @@ export function mcidText(page: mupdf.PDFObject): Map<number, string> {
     out.set(id, text.replace(/\s+/g, " ").trim());
     id = undefined;
   }
+  if (at) for (const [k, v] of drawnText(at.doc, at.doc.loadPage(at.index))) if (v || !out.has(k)) out.set(k, v);
+  return out;
+}
+
+// The text mupdf reads in each marked-content id: each show operator (and
+// form) drawn in the colour of the innermost id around it.
+function drawnText(doc: mupdf.PDFDocument, page: mupdf.PDFPage): Map<number, string> {
+  const out = new Map<number, string>(), obj = page.getObject();
+  let body: string;
+  try {
+    body = pageBody(obj);
+  } catch {
+    return out;
+  }
+  if (body.length > MAX_CONTENT) return out;
+  const ops = operators(body), props = obj.getInheritable("Resources").get("Properties");
+  const key = new Map<number, number>(), open: number[] = []; // per sequence, the innermost id around it, or -1
+  const idOf = (args: string[]) => {
+    const at = args.indexOf("/MCID"), named = args[1]?.startsWith("/") && props.isDictionary() ? props.get(args[1].slice(1)).get("MCID") : null;
+    const id = at >= 0 ? Number(args[at + 1]) : named?.isNumber() ? named.asNumber() : -1;
+    return Number.isInteger(id) && id >= 0 && id < 0xfffffe ? id : -1;
+  };
+  ops.forEach((o, k) => {
+    if (o.op === "BMC" || o.op === "BDC") {
+      const id = o.op === "BDC" ? idOf(o.args) : -1;
+      open.push(id >= 0 ? id : (open.at(-1) ?? -1));
+    } else if (o.op === "EMC") open.pop();
+    else if ((SHOW.has(o.op) || o.op === "Do") && (open.at(-1) ?? -1) >= 0) key.set(k, open.at(-1)! + 1);
+  });
+  if (!key.size) return out;
+  const text = { body, ops, shows: new Map(), codes: [] };
+  let last = new Map<number, number>(); // id -> the line its last character was on
+  for (const c of keyedChars(doc, page, (mask) => keyedBody(text, (k) => key.get(k) ?? 0, mask))) {
+    if (!c.key) continue;
+    const id = c.key - 1, line = last.get(id);
+    out.set(id, (out.get(id) ?? "") + (line !== undefined && line !== c.line ? " " : "") + c.c);
+    last.set(id, c.line);
+  }
+  for (const [k, v] of out) out.set(k, v.replace(/\s+/g, " ").trim());
   return out;
 }
 
@@ -89,8 +132,9 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
   const index = pageIndex(doc);
   const cache = new Map<number, Map<number, string>>();
   const textOn = (pg: mupdf.PDFObject, mcid: number) => {
-    if (!pg.isIndirect()) return "";
-    if (!cache.has(pg.asIndirect())) cache.set(pg.asIndirect(), mcidText(pg));
+    const i = pg.isIndirect() ? index.get(pg.asIndirect()) : undefined;
+    if (i === undefined) return "";
+    if (!cache.has(pg.asIndirect())) cache.set(pg.asIndirect(), mcidText(pg, { doc, index: i }));
     return cache.get(pg.asIndirect())!.get(mcid) ?? "";
   };
   const seen = new Set<number>();
@@ -119,6 +163,9 @@ export function structTree(doc: mupdf.PDFDocument): Elem {
     };
     if (k.isArray()) k.forEach(each);
     else if (!k.isNull()) each(k);
+    // ActualText replaces what the element holds, for a reader.
+    const actual = e.get("ActualText");
+    if (actual.isString()) parts.splice(0, parts.length, actual.asString());
     node.text = parts.filter((p) => typeof p === "string" && p).join(" ");
     return node;
   };

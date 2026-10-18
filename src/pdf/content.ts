@@ -1,28 +1,10 @@
-// Page content: wrap the original drawing as one artifact, and write the
-// invisible, tagged text overlay that carries Iris's words (spec §7.2).
+// Page content: the original drawing, and the invisible, tagged text overlay
+// that carries Iris's words where the page's own text cannot (spec §7.2).
 import * as mupdf from "mupdf";
 import type { FontSet } from "./fonts.ts";
 import type { Box } from "../align/words.ts";
 
-// The page's original content streams, bracketed by /Artifact BMC q ... Q EMC.
-// The streams are not touched unless a figure owns an image in them: then
-// they are joined into one, with each such image in its Figure's marked content.
-export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject, figures = new Map<number, number>()): mupdf.PDFObject[] {
-  let streams = pageStreams(page);
-  if (!streams.length) return [];
-  if (figures.size) {
-    const s = pageBody(page), ops = operators(s);
-    let out = "", from = 0;
-    for (const [k, mcid] of [...figures].sort((a, b) => a[0] - b[0])) {
-      out += `${s.slice(from, ops[k].start)}\nEMC /Figure <</MCID ${mcid}>> BDC\n${s.slice(ops[k].start, ops[k].end)}\nEMC /Artifact BMC\n`;
-      from = ops[k].end;
-    }
-    streams = [addBody(doc, out + s.slice(from))];
-  }
-  return [doc.addStream("/Artifact BMC q\n", {}), ...streams, doc.addStream("\nQ EMC\n", {})];
-}
-
-function pageStreams(page: mupdf.PDFObject): mupdf.PDFObject[] {
+export function pageStreams(page: mupdf.PDFObject): mupdf.PDFObject[] {
   const contents = page.get("Contents"), streams: mupdf.PDFObject[] = [];
   if (contents.isArray()) contents.forEach((s) => { if (s.isStream()) streams.push(s); });
   else if (contents.isStream()) streams.push(contents);
@@ -281,7 +263,8 @@ export class Overlay {
     this.ops.push(`/${tag} <</MCID ${mcid}>> BDC EMC`);
   }
 
+  // Empty if it draws and marks nothing.
   toString() {
-    return this.ops.join("\n") + "\nQ\n";
+    return this.ops.length > 1 ? this.ops.join("\n") + "\nQ\n" : "";
   }
 }
