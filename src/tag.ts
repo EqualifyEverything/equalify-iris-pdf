@@ -450,7 +450,7 @@ const tiles = (a: Box, b: Box) =>
 
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const unique = (xs: number[]) => [...new Set(xs)];
-const marksOf = (s: string) => s.normalize("NFKC").replace(/[\p{L}\p{N}]/gu, "");
+const marksOf = (s: string) => s.normalize("NFKC").replace(/\p{L}/gu, ""); // digits count: "website.1" is not "website."
 // A page word drawn as HTML words lo..hi, and the unmatched HTML words
 // beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each
 // one's characters [from, to) of it, or null. text(j): HTML word j's text,

@@ -598,6 +598,12 @@ test("a word OCR misread is tagged where it is, read as the HTML's word", () => 
   assert.equal(find(root, "Span")[0].dict.get("ActualText").asString(), "forscattered");
   assert.equal(readingOrder(root), "The forscattered electrons");
   assert.equal(report.pages[0].redrawn, 0);
+  // Not over a page word that draws more, or other digits.
+  for (const [page, html] of [["See the website.1 now", "See the website. now"], ["Total $1,250.00 due", "Total $1,350.00 due"]]) {
+    const r = tagContent(`BT /F1 12 Tf 20 200 Td (${page}) Tj ET`, `<p>${html}</p>`);
+    assert.equal(find(r.root, "Span").length, 0, page);
+    assert.equal(r.report.pages[0].redrawn, 1, page);
+  }
 });
 
 test("lines padded with spaces, one show each, are tagged where they are", () => {
