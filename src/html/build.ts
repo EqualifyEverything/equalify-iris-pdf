@@ -197,7 +197,8 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
   kids(add(type ?? "P"), inner);
 }
 
-const int = (v: string | undefined) => (v && /^\s*[+-]?\d+\s*$/.test(v) ? Number(v) : undefined);
+// An integer attribute; one too large to count from is ignored.
+const int = (v: string | undefined) => (v && /^\s*[+-]?\d+\s*$/.test(v) && Number.isSafeInteger(Number(v)) ? Number(v) : undefined);
 
 function listItem(e: Elem, parent: Node, label: string, ctx: Ctx) {
   const li: Node = { type: "LI", kids: [] };
