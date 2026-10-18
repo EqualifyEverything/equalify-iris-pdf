@@ -38,6 +38,10 @@ test("an equation is one Formula, its tokens as words and its MathML spoken as A
   assert.deepEqual(warnings, []);
   assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "."), Formula("a + b")');
   assert.equal(wordsInOrder(top).find((o) => o.word.text === "2")!.word.space ?? false, false);
+  // Malformed MathML with no alttext keeps its tokens, and is warned.
+  const bad = build("<p>Let <math><msup><mi>x</mi></msup></math> be.</p>");
+  assert.equal(bad.top.kids.map(shape).join(", "), 'P("Let", Formula("x"), "be.")');
+  assert.deepEqual(bad.warnings, [{ code: "missing_alt", detail: "math: x" }]);
   // An equation with alttext only still has text to own.
   assert.equal(kids('<math alttext="pi"></math>'), 'Formula("pi")');
   const alts: string[] = [];
