@@ -67,7 +67,17 @@ export function buildPage(html: string, lang: string, prefix: string, warn: (w: 
   top.images = ctx.images.n;
   // Text directly in the fragment, outside any block, becomes a paragraph.
   top.kids = top.kids.map((k) => (isRun(k) ? { type: "P", kids: [k] } : k));
+  spaceAfterBlocks(top);
   return top;
+}
+
+// A block's last word is followed by a space, so copied text keeps table
+// cells, headings and paragraphs apart.
+function spaceAfterBlocks(n: Node) {
+  for (const k of n.kids) if (!isRun(k)) spaceAfterBlocks(k);
+  if (INLINE.has(n.type)) return;
+  const w = lastWord(n);
+  if (w) w.space = true;
 }
 
 function build(e: Elem | string, parent: Node, ctx: Ctx) {
