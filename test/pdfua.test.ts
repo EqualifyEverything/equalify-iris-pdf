@@ -8,7 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { checkPdfUa } from "../src/verify/pdfua.ts";
-import { fixture, tagFixture } from "./helpers.ts";
+import { newReport, tag } from "../src/index.ts";
+import { fixture, pagesOf, readFixture, tagFixture } from "./helpers.ts";
 
 const noVera = !process.env.IRIS_REQUIRE_VERAPDF && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
 const noOcr = !tesseractInstalled() && "Tesseract is not installed";
@@ -27,6 +28,18 @@ test("a scan tagged without Tesseract claims PDF/UA-1 and passes veraPDF", { ski
   const r = spawnSync(process.execPath, [cli, "tag", "--pdf", fixture("scan-300dpi.pdf"), "--pages", fixture("scan-300dpi.pages.json"), "--out", path], { encoding: "utf8", env: { PATH: "" } });
   assert.equal(r.status, 0, r.stderr);
   assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);
+  const { passed, message } = checkPdfUa(path);
+  assert.equal(passed, true, message);
+});
+
+test("an equation's Formula passes veraPDF", { skip: noVera }, () => {
+  const pages = pagesOf("text-embedded");
+  pages.pages[0].html += '<math alttext="x plus 1"><mi>x</mi><mo>+</mo><mn>1</mn></math>';
+  const report = newReport();
+  const out = tag(readFixture("text-embedded.pdf"), pages, {}, report);
+  assert.equal(report.warnings.some((w) => w.code === "unmapped_element"), false);
+  const path = join(dir, "formula.pdf");
+  writeFileSync(path, out);
   const { passed, message } = checkPdfUa(path);
   assert.equal(passed, true, message);
 });
