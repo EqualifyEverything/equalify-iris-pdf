@@ -11,10 +11,17 @@ export function textLayerWords(page: mupdf.PDFPage): PageWord[] {
     if (cur) words.push(cur);
     cur = null;
   };
-  page.toDisplayList(false).toStructuredText("").walk({
-    beginLine: flush,
+  const stext = page.toDisplayList(false).toStructuredText("");
+  const lines = fullLines(stext);
+  let line = -1, at = 0;
+  stext.walk({
+    beginLine() {
+      flush();
+      line++, at = 0;
+    },
     endLine: flush,
     onChar(c, origin, _font, size, quad) {
+      c = fullChar(c, lines[line]?.[at++]);
       if (/\s/.test(c)) return flush();
       const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
       const box: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -28,4 +35,17 @@ export function textLayerWords(page: mupdf.PDFPage): PageWord[] {
   });
   flush();
   return words;
+}
+
+// mupdf.js's walk gives each character's low 16 bits only (String.fromCharCode),
+// so 𝑥 (U+1D465) arrives as U+D465. Its JSON has the whole code points, line
+// by line in the same order; one is used only where its low bits agree.
+function fullLines(stext: mupdf.StructuredText): string[][] {
+  const blocks: { type: string; lines?: { text: string }[] }[] = JSON.parse(stext.asJSON()).blocks;
+  return blocks.filter((b) => b.type === "text").flatMap((b) => (b.lines ?? []).map((l) => [...l.text]));
+}
+
+function fullChar(c: string, full: string | undefined): string {
+  const u = full?.codePointAt(0);
+  return u !== undefined && u > 0xffff && (u & 0xffff) === c.charCodeAt(0) ? full! : c;
 }

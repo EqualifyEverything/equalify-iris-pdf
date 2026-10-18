@@ -511,3 +511,15 @@ test("deeply nested form XObjects do not overflow the stack", () => {
   assert.deepEqual(unembeddedFonts(doc), ["(nested too deeply to check)"]);
   assert.deepEqual(pagesWithMcids(doc), [1]);
 });
+
+test("a character past U+FFFF in the source text matches the HTML", () => {
+  // A ToUnicode surrogate pair, as Word writes math italic: x is 𝑥 (U+1D465).
+  const src = new mupdf.PDFDocument();
+  const cmap = "begincmap\n1 begincodespacerange <00> <FF> endcodespacerange\n1 beginbfchar <78> <D835DC65> endbfchar\nendcmap";
+  const font = src.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", ToUnicode: src.addStream(cmap, {}) });
+  src.insertPage(-1, src.addPage([0, 0, 612, 792], 0, src.addObject({ Font: { F1: font } }), "BT /F1 24 Tf 72 700 Td (If 2x = 4) Tj ET"));
+  const report = newReport();
+  tag(src.saveToBuffer("").asUint8Array(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>If 2𝑥 = 4</p>" }] }, {}, report);
+  assert.ok(!report.warnings.some((w) => w.code === "unmatched_text"));
+  assert.equal(report.pages[0].addedFromHtml, 0);
+});
