@@ -34,7 +34,7 @@ test("headings move up together when the document starts below h1", () => {
 });
 
 test("a block's last word is followed by a space, so table cells do not run together", () => {
-  const words = wordsInOrder(build("<table><tr><td>Block</td><td><b>Rate</b></td></tr></table><p>Inputs</p>").top);
+  const words = wordsInOrder(build("<table><tr><td>Block</td><td><a href=\"#x\">Rate</a></td></tr></table><p>Inputs</p>").top);
   assert.deepEqual(words.map((o) => o.word.space), [true, true, true]);
   const inline = wordsInOrder(build("<p>re<b>use</b>d</p>").top);
   assert.deepEqual(inline.map((o) => o.word.space ?? false), [false, false, true]);
