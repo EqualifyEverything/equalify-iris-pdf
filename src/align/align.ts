@@ -65,6 +65,7 @@ export function matchRuns(html: string[], page: string[], match: number[]): numb
         while (j < Math.min(k, start + RUN) && s.length < want.length && want.startsWith(s + hb[j])) s += hb[j++];
         if (s !== want) continue;
         for (let x = start; x < j; x++) if (hb[x]) out[x] = t;
+        claimed.add(t); // gaps out of page order can cover the same page words
         i = j;
         break;
       }
@@ -78,13 +79,13 @@ export function matchRuns(html: string[], page: string[], match: number[]): numb
 // Between two matched words with as many page tokens as HTML words in the
 // gap, each pair that reads the same (as NFKC) matches.
 export function matchMarks(html: string[], page: string[], match: number[]): number[] {
-  const out = [...match], nf = (s: string) => s.normalize("NFKC");
+  const out = [...match], nf = (s: string) => s.normalize("NFKC"), claimed = new Set(match);
   let k0 = -1;
   for (let k = 0; k < out.length; k++) {
     if (out[k] < 0) continue;
     const a = out[k0] ?? -1, gap = k - k0 - 1;
     if (k0 >= 0 && gap > 0 && out[k] - a - 1 === gap)
-      for (let j = 1; j <= gap; j++) if (nf(html[k0 + j]) === nf(page[a + j])) out[k0 + j] = a + j;
+      for (let j = 1; j <= gap; j++) if (!claimed.has(a + j) && nf(html[k0 + j]) === nf(page[a + j])) claimed.add((out[k0 + j] = a + j));
     k0 = k;
   }
   return out;
