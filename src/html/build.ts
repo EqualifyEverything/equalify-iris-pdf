@@ -124,10 +124,11 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       // One Formula per equation (PDF/UA-1 7.7). Its words are the tokens; its Alt is spoken from
       // the MathML, as a reader does in HTML. alttext is often TeX, so it is only the fallback.
       const tokens = mathTokens(e).join(" ");
-      const alt = speak(e) || clean(e.attrs.alttext ?? "");
+      const spoken = speak(e), alt = spoken || clean(e.attrs.alttext ?? "");
       if (!alt) return;
       const f = add("Formula");
       f.alt = alt;
+      if (spoken && !inner.lang.startsWith("en")) f.lang = "en"; // the spoken words are English
       addText(f, tokens || alt, ctx.collect);
       return;
     }

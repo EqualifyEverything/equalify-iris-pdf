@@ -19,6 +19,13 @@ test("MathML is spoken as words, its layout included", () => {
   assert.equal(say("<mi>f</mi><mo>⁡</mo><mo>(</mo><mi>x</mi><mo>)</mo>"), "f ( x )");
   assert.equal(say("<mtable><mtr><mtd><mn>1</mn></mtd><mtd><mn>0</mn></mtd></mtr><mtr><mtd><mn>0</mn></mtd><mtd><mn>1</mn></mtd></mtr></mtable>"),
     "table row 1 1, 0, row 2 0, 1 end table");
+  assert.equal(say("<mover><mi>x</mi><mi>constructor</mi></mover>"), "x over constructor");
   // The TeX annotation is the HTML's fallback, not what is read.
   assert.equal(say('<semantics><mi>x</mi><annotation encoding="application/x-tex">x</annotation></semantics>'), "x");
+});
+
+test("deeply nested MathML is spoken in linear time", () => {
+  const start = Date.now();
+  assert.equal(say("<mrow>".repeat(200) + "<mi>x</mi>" + "</mrow>".repeat(200)), "x");
+  assert.ok(Date.now() - start < 1000);
 });

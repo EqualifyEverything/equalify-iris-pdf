@@ -5,7 +5,7 @@ import type { Elem } from "./parse.ts";
 const SKIP = new Set(["annotation", "annotation-xml", "mspace", "mphantom", "mprescripts", "none"]);
 const TOKEN = new Set(["mi", "mn", "mo", "mtext", "ms"]);
 const INVISIBLE = /[⁡-⁤]/g; // function application, invisible times, separator, plus
-const ACCENT: Record<string, string> = { "^": "hat", "ˆ": "hat", "¯": "bar", "‾": "bar", "~": "tilde", "˜": "tilde", "˙": "dot", "→": "vector" };
+const ACCENT = new Map(Object.entries({ "^": "hat", "ˆ": "hat", "¯": "bar", "‾": "bar", "~": "tilde", "˜": "tilde", "˙": "dot", "→": "vector" }));
 
 const clean = (s: string) => s.replace(INVISIBLE, " ").replace(/\s+/g, " ").trim();
 const elems = (e: Elem) => e.kids.filter((k): k is Elem => typeof k !== "string" && !SKIP.has(k.tag));
@@ -17,32 +17,41 @@ export function mathTokens(e: Elem | string): string[] {
 }
 
 export function speak(e: Elem): string {
-  return clean(say(e));
+  return clean(say(e).text);
 }
 
-function say(e: Elem): string {
-  if (TOKEN.has(e.tag)) return mathTokens(e).join("");
-  const [a, b, c] = elems(e).map(say);
-  const simple = (i: number) => mathTokens(elems(e)[i] ?? "").length <= 1;
+// Each node is spoken once, from its children's speech, so the work is linear in its size.
+// tokens: how many tokens the node holds; one is simple enough to need no "end" marker.
+function say(e: Elem): { text: string; tokens: number } {
+  if (TOKEN.has(e.tag)) {
+    const text = mathTokens(e).join("");
+    return { text, tokens: text ? 1 : 0 };
+  }
+  const parts = elems(e).map(say);
+  return { text: speech(e, parts), tokens: parts.reduce((n, p) => n + p.tokens, 0) };
+}
+
+function speech(e: Elem, parts: { text: string; tokens: number }[]): string {
+  const [a, b, c] = parts.map((p) => p.text);
+  const simple = (i: number) => (parts[i]?.tokens ?? 0) <= 1;
   const end = (i: number, word: string) => (simple(i) ? "" : ` end ${word}`);
+  const all = (sep: string) => parts.map((p) => p.text).join(sep);
   switch (e.tag) {
     case "mfrac": return simple(0) && simple(1) ? `${a} over ${b}` : `fraction ${a} over ${b} end fraction`;
-    case "msqrt": return `square root of ${elems(e).map(say).join(" ")} end root`;
+    case "msqrt": return `square root of ${all(" ")} end root`;
     case "mroot": return `root with index ${b} of ${a} end root`;
     case "msup": return `${a} ${power(b, simple(1))}`;
     case "msub": return `${a} sub ${b}${end(1, "sub")}`;
     case "msubsup": return `${a} sub ${b}${end(1, "sub")} ${power(c, simple(2))}`;
     case "munder": return `${a} under ${b}${end(1, "under")}`;
-    case "mover": return ACCENT[b] ? `${a} ${ACCENT[b]}` : `${a} over ${b}${end(1, "over")}`;
+    case "mover": return ACCENT.has(b) ? `${a} ${ACCENT.get(b)}` : `${a} over ${b}${end(1, "over")}`;
     case "munderover": return `${a} from ${b} to ${c}`;
-    case "mtable": return `table ${elems(e).map((r, i) => `row ${i + 1} ${elems(r).map(say).join(", ")}`).join(", ")} end table`;
-    case "mfenced": {
-      const sep = e.attrs.separators ?? ",";
-      return `${e.attrs.open ?? "("} ${elems(e).map(say).join(` ${sep.trim()[0] ?? ""} `)} ${e.attrs.close ?? ")"}`;
-    }
+    case "mtable": return `table ${parts.map((p, i) => `row ${i + 1} ${p.text}`).join(", ")} end table`;
+    case "mtr": return all(", ");
+    case "mfenced": return `${e.attrs.open ?? "("} ${all(` ${(e.attrs.separators ?? ",").trim()[0] ?? ""} `)} ${e.attrs.close ?? ")"}`;
     case "semantics": return a ?? "";
   }
-  return elems(e).map(say).join(" "); // mrow, mstyle, mpadded, menclose, math and the rest
+  return all(" "); // mrow, mstyle, mpadded, menclose, math and the rest
 }
 
 function power(p: string, simple: boolean): string {

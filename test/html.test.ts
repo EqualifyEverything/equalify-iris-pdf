@@ -44,6 +44,10 @@ test("an equation is one Formula, its tokens as words and its MathML spoken as A
   const visit = (n: Node) => { if (n.type === "Formula") alts.push(n.alt!); n.kids.forEach((k) => isRun(k) || visit(k)); };
   visit(top);
   assert.deepEqual(alts, ["x squared", "a + b"]);
+  // The spoken words are English, so they are marked so in a document that is not.
+  const fr = buildPage("<p>Soit <math><mi>x</mi></math></p>", "fr", "p1-", () => {}).kids[0] as Node;
+  assert.equal((fr.kids[1] as Node).lang, "en");
+  assert.equal((top.kids[1] as Node).lang, undefined);
 });
 
 test("images: alt text, decorative and missing", () => {
