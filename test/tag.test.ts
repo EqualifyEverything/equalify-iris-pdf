@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as mupdf from "mupdf";
-import { newReport, tag } from "../src/index.ts";
-import { share } from "../src/tag.ts";
+import { newReport, tag, IrisPdfError } from "../src/index.ts";
+import { share, withFallback } from "../src/tag.ts";
 import { buildPage, wordsInOrder } from "../src/html/build.ts";
 import { normalize, splitWords } from "../src/align/words.ts";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
@@ -594,4 +594,44 @@ test("marked text is read through named properties too", () => {
   const res = doc.addObject({ Font: { F1: doc.addSimpleFont(new mupdf.Font("Helvetica")) }, Properties: { M0: { MCID: 0 } } });
   doc.insertPage(-1, doc.addPage([0, 0, 300, 300], 0, res, "/P /M0 BDC BT /F1 12 Tf 20 200 Td (Hello) Tj ET EMC"));
   assert.deepEqual([...mcidText(doc.findPage(0), { doc, index: 0 })], [[0, "Hello"]]);
+});
+
+test("link text followed by its period is tagged in place, the period split off", () => {
+  const { doc, report } = tagFixture("links");
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.ok(!report.warnings.some((w) => w.code === "in_place_failed" || w.code === "duplicate_text_layer"));
+  assert.match(pageBody(doc.findPage(0)), /\/Link <<\/MCID \d+>> BDC <[0-9a-f]+> Tj EMC .*<2e> Tj/);
+});
+
+test("a page number the HTML matches stays an artifact, and a word the page draws with more is not hidden", () => {
+  // structure.pdf draws "website.1"; the HTML's footnote "1" matches the page number.
+  const { doc } = tagFixture("structure");
+  const body = pageBody(doc.findPage(0));
+  assert.match(body, /\nBT \/F1 7 Tf 153 18 Td <0012> Tj ET\n/, "the page number is not rewritten");
+  assert.doesNotMatch(body, /ActualText/);
+  assert.match(doc.loadPage(0).toStructuredText("").asText(), /website\.1/);
+});
+
+test("a run that fails verification in place is tagged again from the overlay, on a fresh report", () => {
+  const report = newReport(), tried: boolean[] = [];
+  const out = withFallback((inPlace) => {
+    tried.push(inPlace);
+    report.warnings.push({ code: inPlace ? "text_lost" : "no_title" });
+    if (inPlace) throw new IrisPdfError("text_lost", "Page 1 lost text.", 2);
+    return "overlay";
+  }, report);
+  assert.equal(out, "overlay");
+  assert.deepEqual(tried, [true, false]);
+  assert.deepEqual(report.warnings.map((w) => w.code), ["no_title", "in_place_failed"]);
+  // Any other failure is not retried.
+  assert.throws(() => withFallback(() => { throw new IrisPdfError("too_many_words", "x"); }, newReport()), { code: "too_many_words" });
+});
+
+test("a page whose content is too long to trace is tagged from the overlay", () => {
+  const doc = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
+  const page = doc.findPage(0);
+  page.put("Contents", doc.addStream(page.get("Contents").readStream().asString() + " ".repeat(4 << 20), {}));
+  const report = newReport();
+  tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-simple"), {}, report);
+  assert.equal(report.pages[0].redrawn, report.pages[0].matched);
 });

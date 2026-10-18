@@ -98,7 +98,7 @@ test("each page is reviewed with its own outline and the headings before it", as
 
 test("the outline shows links, table headers and form fields as a screen reader reads them", () => {
   const structure = pageOutline(structTree(tagFixture("structure").doc), 0);
-  assert.match(structure, /^ {2}Link Contents="the city website" href="https:\/\/example\.org\/permits"\n {4}"the city"\n {4}Span ActualText="website" "website"$/m);
+  assert.match(structure, /^ {2}Link Contents="the city website" href="https:\/\/example\.org\/permits" "the city website"$/m);
   assert.match(structure, /^ {6}TH ID="p1-th1" Scope=Column "Zone"$/m);
   assert.match(structure, /^ {6}TD Headers="p1-th1" "North"$/m);
   const form = pageOutline(structTree(tagFixture("form-acroform").doc), 0);

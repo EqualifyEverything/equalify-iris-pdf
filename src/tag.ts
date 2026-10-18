@@ -33,13 +33,18 @@ export type TagOptions = OpenOptions & {
 // Tagging the page's own text is checked like the rest; if it fails, the
 // text is tagged in an overlay instead.
 export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, report: Report = newReport()): Uint8Array {
-  if (opts.inPlace === false) return tagWith(pdf, input, opts, report, false);
+  const run = (inPlace: boolean) => tagWith(pdf, input, opts, report, inPlace);
+  return opts.inPlace === false ? run(false) : withFallback(run, report);
+}
+
+// run(true), or if that fails verification, run(false) on a fresh report.
+export function withFallback<T>(run: (inPlace: boolean) => T, report: Report): T {
   try {
-    return tagWith(pdf, input, opts, report, true);
+    return run(true);
   } catch (e) {
     if (!(e instanceof IrisPdfError) || !["pixels_changed", "text_lost"].includes(e.code)) throw e;
     Object.assign(report, newReport());
-    const out = tagWith(pdf, input, opts, report, false);
+    const out = run(false);
     report.warnings.push({ code: "in_place_failed", detail: `Tagging the page's own text failed verification (${e.message}); its words were drawn again in an overlay instead.` });
     return out;
   }
@@ -180,9 +185,10 @@ type PageCtx = {
   inPlace: boolean;
 };
 
+const MAX_TRACED = 4 << 20; // bytes of page content; tracing writes some 50 per code
 // The page's own text, parsed so its codes can be marked where they are, and
-// read code by code. Null if it has none, or its content cannot be read, or
-// ends inside a string: what follows it would be read as that string.
+// read code by code. Null if it has none, or its content cannot be read, is
+// too long to trace, or ends inside a string: what follows would be read as that string.
 function sourceText(doc: mupdf.PDFDocument, page: mupdf.PDFPage) {
   let body: string;
   try {
@@ -190,7 +196,7 @@ function sourceText(doc: mupdf.PDFDocument, page: mupdf.PDFPage) {
   } catch {
     return null;
   }
-  if (body.includes("(") && withoutStrings(body) === body) return null;
+  if (body.length > MAX_TRACED || (body.includes("(") && withoutStrings(body) === body)) return null;
   const text = parseText(page.getObject(), body);
   if (!text.shows.size || text.codes.length >= 0xffffff) return null; // a key is 24 bits
   const keyed = keyedChars(doc, page, (mask) => keyedBody(text, (_op, id) => id, mask));
@@ -248,15 +254,17 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     report.matched++;
     matched.add(ordered[k].word);
     const on = tokens[t].words.map((j) => words[j]), w = ordered[k].word;
-    if (sharing.get(t)!.length === 1 && on.every((p) => p.codes)) {
+    // A page number or running header the HTML happens to match stays an artifact.
+    if (sharing.get(t)!.length === 1 && on.every((p) => p.codes && !isFurniture(p, bounds[3] - bounds[1], n))) {
       const drawn = [...on.map((p) => p.text).join("")], all = on.flatMap((p) => p.codes!);
-      const split = on.length === 1 ? beside(drawn, ordered.map((o, j) => (match[j] === -1 ? o.word.text : null)), k) : null;
+      const split = on.length === 1 ? beside(drawn, ordered.map((o, j) => (j === k || match[j] === -1 ? o.word.text : null)), k) : null;
       if (drawn.join("").normalize("NFKC") === w.text.normalize("NFKC")) codes.set(w, unique(all));
       else if (split) for (const [j, from, to] of split) codes.set(ordered[j].word, unique(all.slice(from, to)));
-      else {
+      else if (tokens[t].norm === w.norm) {
+        // Spelled with other marks, such as a line-end hyphen: read as the HTML's word.
         codes.set(w, unique(all));
         actual.set(w, w.text);
-      }
+      } // else the page draws more than this word: it stays an artifact, and the word goes in the overlay.
     }
     ordered[k].word.at = share(placed(words[tokens[t].words[0]], bounds), sharing.get(t)!.map((x) => htmlNorms[x].length), sharing.get(t)!.indexOf(k));
     blockOf.set(t, ordered[k].block);
