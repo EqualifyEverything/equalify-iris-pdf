@@ -3,6 +3,7 @@
 // the alignment.
 import { parseHtml, textOf, type Elem } from "./parse.ts";
 import { STRUCT, TRANSPARENT, SKIP, listNumbering } from "./map.ts";
+import { mathTokens, speak } from "./math.ts";
 import { normalize, splitWords, type Box } from "../align/words.ts";
 import type { Warning } from "../report.ts";
 
@@ -120,14 +121,15 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       return;
     }
     case "math": {
-      // One Formula per equation (PDF/UA-1 7.7). Its words are the tokens; a TeX annotation is not read.
-      // Without alttext, the tokens stand in, but they lose the layout (x² is "x 2").
+      // One Formula per equation (PDF/UA-1 7.7). Its words are the tokens; its Alt is spoken from
+      // the MathML, as a reader does in HTML. alttext is often TeX, so it is only the fallback.
       const tokens = mathTokens(e).join(" ");
-      const alt = clean(e.attrs.alttext ?? "");
-      if (!alt && !tokens) return;
-      if (!alt) ctx.warn({ code: "missing_alt", detail: `math: ${tokens}` });
+      const spoken = speak(e), alt = spoken || clean(e.attrs.alttext ?? "") || tokens;
+      if (!alt) return;
+      if (!spoken && !clean(e.attrs.alttext ?? "")) ctx.warn({ code: "missing_alt", detail: `math: ${tokens}` }); // malformed, no alttext
       const f = add("Formula");
-      f.alt = alt || tokens;
+      f.alt = alt;
+      if (spoken && !inner.lang.startsWith("en")) f.lang = "en"; // the spoken words are English
       addText(f, tokens || alt, ctx.collect);
       return;
     }
@@ -277,15 +279,6 @@ function addText(parent: Node, text: string, collect: Word[][] = []) {
 const word = (text: string): Word => ({ text, norm: normalize(text) });
 const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
-
-// A MathML element's token texts (mi, mn, mo, mtext, ms), in order.
-const ANNOTATION = new Set(["annotation", "annotation-xml"]);
-function mathTokens(e: Elem): string[] {
-  return e.kids.flatMap((k) => {
-    if (typeof k === "string") return clean(k) ? [clean(k)] : [];
-    return ANNOTATION.has(k.tag) ? [] : mathTokens(k);
-  });
-}
 
 function walk(e: Elem, fn: (e: Elem) => void) {
   fn(e);

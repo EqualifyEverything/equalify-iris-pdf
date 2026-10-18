@@ -32,19 +32,26 @@ test("lists get a label and a body per item", () => {
   assert.equal(ol.attrs!.ListNumbering, "LowerAlpha");
 });
 
-test("an equation is one Formula, with its alttext or else its tokens as Alt", () => {
-  const { top, warnings } = build('<p>So <math alttext="x squared"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
+test("an equation is one Formula, its tokens as words and its MathML spoken as Alt", () => {
+  const { top, warnings } = build('<p>So <math alttext="x^2"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
     + '<math display="block"><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math><math></math>');
-  // Without alttext the tokens lose the layout, so that is warned.
-  assert.deepEqual(warnings, [{ code: "missing_alt", detail: "math: a + b" }]);
+  assert.deepEqual(warnings, []);
   assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "."), Formula("a + b")');
   assert.equal(wordsInOrder(top).find((o) => o.word.text === "2")!.word.space ?? false, false);
+  // Malformed MathML with no alttext keeps its tokens, and is warned.
+  const bad = build("<p>Let <math><msup><mi>x</mi></msup></math> be.</p>");
+  assert.equal(bad.top.kids.map(shape).join(", "), 'P("Let", Formula("x"), "be.")');
+  assert.deepEqual(bad.warnings, [{ code: "missing_alt", detail: "math: x" }]);
   // An equation with alttext only still has text to own.
   assert.equal(kids('<math alttext="pi"></math>'), 'Formula("pi")');
   const alts: string[] = [];
   const visit = (n: Node) => { if (n.type === "Formula") alts.push(n.alt!); n.kids.forEach((k) => isRun(k) || visit(k)); };
   visit(top);
   assert.deepEqual(alts, ["x squared", "a + b"]);
+  // The spoken words are English, so they are marked so in a document that is not.
+  const fr = buildPage("<p>Soit <math><mi>x</mi></math></p>", "fr", "p1-", () => {}).kids[0] as Node;
+  assert.equal((fr.kids[1] as Node).lang, "en");
+  assert.equal((top.kids[1] as Node).lang, undefined);
 });
 
 test("images: alt text, decorative and missing", () => {

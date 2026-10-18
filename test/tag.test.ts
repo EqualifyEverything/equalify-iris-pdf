@@ -105,12 +105,12 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
 
 test("an equation is a Formula with Alt that owns its words", () => {
   const pages = pagesOf("text-simple");
-  pages.pages[0].html += '<p>Fee <math alttext="x plus 1"><mi>x</mi><mo>+</mo><mn>1</mn></math></p>';
+  pages.pages[0].html += '<p>Fee <math alttext="\\frac{x}{2}"><mfrac><mi>x</mi><mn>2</mn></mfrac></math></p>';
   const report = newReport();
   const doc = new mupdf.PDFDocument(tag(readFixture("text-simple.pdf"), pages, {}, report));
   const [f] = find(structTree(doc), "Formula");
-  assert.equal(f.dict.get("Alt").asString(), "x plus 1");
-  assert.equal(f.text, "x + 1");
+  assert.equal(f.dict.get("Alt").asString(), "x over 2");
+  assert.equal(f.text, "x 2");
   assert.equal(report.warnings.some((w) => w.code === "unmapped_element"), false);
 });
 
