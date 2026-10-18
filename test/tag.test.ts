@@ -10,7 +10,7 @@ import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
 import { Overlay, pageBody, pagesWithMcids, unmark } from "../src/pdf/content.ts";
 import { FontSet, unembeddedFonts } from "../src/pdf/fonts.ts";
-import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture } from "./helpers.ts";
+import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture, withLayers } from "./helpers.ts";
 
 const TEXT = ["text-simple", "text-embedded", "structure", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
 const SCANS = ["scan-300dpi", "scan-skewed", "mixed"];
@@ -474,6 +474,19 @@ test("an unmatched link is described by the words under it", () => {
   // "Fees" is matched to an H2, not a link, so the annotation is unmatched.
   const [link] = find(structTree(out), "Link");
   assert.equal(link.objr[0].get("Contents").asString(), "Fees");
+});
+
+test("optional content configurations are named; one with /AS stops the PDF/UA claim", () => {
+  const claims = (doc: mupdf.PDFDocument) => /<pdfuaid:part>1</.test(doc.getTrailer().get("Root", "Metadata").readStream().asString());
+  const named = new mupdf.PDFDocument(tag(withLayers(), pagesOf("text-embedded"), {}, newReport()));
+  const oc = named.getTrailer().get("Root", "OCProperties");
+  assert.equal(oc.get("D", "Name").asString(), "Default");
+  assert.equal(oc.get("Configs").get(0).get("Name").asString(), "Configuration 1");
+  assert.equal(claims(named), true);
+  const report = newReport();
+  const auto = new mupdf.PDFDocument(tag(withLayers({ AS: [{ Event: "View", Category: ["View"] }] }), pagesOf("text-embedded"), {}, report));
+  assert.equal(claims(auto), false);
+  assert.ok(report.warnings.some((w) => w.code === "layer_auto_state"));
 });
 
 test("with no title there is no PDF/UA claim, and no empty title", () => {

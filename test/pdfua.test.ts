@@ -3,14 +3,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import * as mupdf from "mupdf";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { checkPdfUa } from "../src/verify/pdfua.ts";
 import { newReport, tag } from "../src/index.ts";
-import { fixture, pagesOf, readFixture, tagFixture } from "./helpers.ts";
+import { fixture, pagesOf, readFixture, tagFixture, withLayers } from "./helpers.ts";
 
 const noVera = !process.env.IRIS_REQUIRE_VERAPDF && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
 const noOcr = !tesseractInstalled() && "Tesseract is not installed";
@@ -58,14 +57,8 @@ test("a page cut from mid-document, starting at h2, claims PDF/UA-1 and passes v
   assert.equal(passed, true, message);
 });
 
-test("optional content configurations get the name PDF/UA-1 requires", { skip: noVera }, () => {
-  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
-  const ocg = src.addObject({ Type: "OCG", Name: src.newString("Layer") });
-  src.getTrailer().get("Root").put("OCProperties", { OCGs: [ocg], D: { Order: [ocg] }, Configs: [{ Order: [ocg] }] });
-  const out = tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, newReport());
-  const oc = new mupdf.PDFDocument(out).getTrailer().get("Root", "OCProperties");
-  assert.equal(oc.get("D", "Name").asString(), "Default");
-  assert.equal(oc.get("Configs").get(0).get("Name").asString(), "Configuration 1");
+test("a PDF with unnamed optional content configurations claims PDF/UA-1 and passes veraPDF", { skip: noVera }, () => {
+  const out = tag(withLayers(), pagesOf("text-embedded"), {}, newReport());
   const path = join(dir, "layers.pdf");
   writeFileSync(path, out);
   const { passed, message } = checkPdfUa(path);

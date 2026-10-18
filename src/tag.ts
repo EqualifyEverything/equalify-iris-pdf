@@ -5,7 +5,7 @@ import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/docu
 import { artifactStreams, drawsNothing, Overlay, pageImages, pagesWithMcids, unmarkPage, type PageImage } from "./pdf/content.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
-import { setDocumentInfo } from "./pdf/metadata.ts";
+import { layersAutoState, setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, headingShift, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
@@ -127,7 +127,9 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   if (fonts.missing.size) warn({ code: "missing_glyph", detail: [...fonts.missing].join("") });
   struct.finish();
   report.structure = { elements: struct.elements, byType: struct.byType };
-  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length);
+  const autoState = layersAutoState(doc);
+  if (autoState) warn({ code: "layer_auto_state", detail: "An optional content configuration has /AS, which PDF/UA-1 forbids; the output does not claim PDF/UA-1." });
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length && !autoState);
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;

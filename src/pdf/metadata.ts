@@ -36,6 +36,16 @@ function nameLayerConfigs(doc: mupdf.PDFDocument, root: mupdf.PDFObject) {
   if (configs.isArray()) configs.forEach((c, i) => name(c, `Configuration ${Number(i) + 1}`));
 }
 
+// PDF/UA-1 7.10 also forbids /AS in a configuration. Removing it could change which layers a
+// viewer shows, which the pixel check would not see, so such a file makes no claim instead.
+export function layersAutoState(doc: mupdf.PDFDocument): boolean {
+  const oc = doc.getTrailer().get("Root", "OCProperties");
+  if (!oc.isDictionary()) return false;
+  const configs = [oc.get("D")];
+  oc.get("Configs").forEach((c) => configs.push(c));
+  return configs.some((c) => c.isDictionary() && !c.get("AS").isNull());
+}
+
 // Our title and PDF/UA claim go in their own rdf:Description. Any title or
 // PDF/UA entry already there is removed first so the packet has one of each,
 // and an old PDF/UA claim does not outlive a run that cannot make it.

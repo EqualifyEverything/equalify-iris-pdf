@@ -16,4 +16,12 @@ export function tagFixture(name: string, opts: TagOptions = {}): { out: Uint8Arr
   return { out, report, doc };
 }
 
+// text-embedded with a layer, its configurations unnamed; extra goes into the default one.
+export function withLayers(extra: Record<string, unknown> = {}): Uint8Array {
+  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const ocg = src.addObject({ Type: "OCG", Name: src.newString("Layer") });
+  src.getTrailer().get("Root").put("OCProperties", { OCGs: [ocg], D: { Order: [ocg], ...extra }, Configs: [{ Order: [ocg] }] });
+  return src.saveToBuffer("").asUint8Array().slice();
+}
+
 export { mcidText, structTree, readingOrder, find, type Elem } from "../src/pdf/read.ts";
