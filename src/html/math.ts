@@ -16,19 +16,26 @@ export function mathTokens(e: Elem | string): string[] {
   return SKIP.has(e.tag) ? [] : e.kids.flatMap(mathTokens);
 }
 
+// "" for MathML that is malformed: a script or fraction with the wrong number of children.
 export function speak(e: Elem): string {
-  return clean(say(e).text);
+  const { text } = say(e);
+  return text === null ? "" : clean(text);
 }
+
+const ARITY: Record<string, number> = { mfrac: 2, mroot: 2, msup: 2, msub: 2, msubsup: 3, munder: 2, mover: 2, munderover: 3 };
 
 // Each node is spoken once, from its children's speech, so the work is linear in its size.
 // tokens: how many tokens the node holds; one is simple enough to need no "end" marker.
-function say(e: Elem): { text: string; tokens: number } {
+type Said = { text: string | null; tokens: number };
+function say(e: Elem): Said {
   if (TOKEN.has(e.tag)) {
     const text = mathTokens(e).join("");
     return { text, tokens: text ? 1 : 0 };
   }
   const parts = elems(e).map(say);
-  return { text: speech(e, parts), tokens: parts.reduce((n, p) => n + p.tokens, 0) };
+  const tokens = parts.reduce((n, p) => n + p.tokens, 0);
+  if (parts.some((p) => p.text === null) || (Object.hasOwn(ARITY, e.tag) && parts.length !== ARITY[e.tag])) return { text: null, tokens };
+  return { text: speech(e, parts as { text: string; tokens: number }[]), tokens };
 }
 
 function speech(e: Elem, parts: { text: string; tokens: number }[]): string {

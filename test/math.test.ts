@@ -20,6 +20,9 @@ test("MathML is spoken as words, its layout included", () => {
   assert.equal(say("<mtable><mtr><mtd><mn>1</mn></mtd><mtd><mn>0</mn></mtd></mtr><mtr><mtd><mn>0</mn></mtd><mtd><mn>1</mn></mtd></mtr></mtable>"),
     "table row 1 1, 0, row 2 0, 1 end table");
   assert.equal(say("<mover><mi>x</mi><mi>constructor</mi></mover>"), "x over constructor");
+  // Malformed MathML is not guessed at: the Formula falls back to alttext.
+  assert.equal(say("<msup><mi>x</mi></msup>"), "");
+  assert.equal(say("<mrow><mfrac><mi>a</mi>b</mfrac></mrow>"), "");
   // The TeX annotation is the HTML's fallback, not what is read.
   assert.equal(say('<semantics><mi>x</mi><annotation encoding="application/x-tex">x</annotation></semantics>'), "x");
 });
