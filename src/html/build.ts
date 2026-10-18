@@ -283,17 +283,22 @@ const word = (text: string): Word => ({ text, norm: normalize(text) });
 const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
-// The level of the HTML's first heading, if it has one.
-export function firstHeading(html: string): number | undefined {
-  let level: number | undefined;
-  walk(parseHtml(html), (e) => { if (!level && /^h[1-6]$/.test(e.tag)) level = Number(e.tag[1]); }, SKIP);
-  return level;
+// PDF/UA-1 wants the first heading to be H1. A document cut from the middle starts lower, so
+// every heading moves up by the same amount, keeping their levels relative to each other.
+// The levels are read from the built pages, so a heading the tree leaves out does not count.
+export function headingShift(pages: string[], lang: string): { shift: number; detail?: string } {
+  const levels = (n: Node | Run): number[] =>
+    isRun(n) ? [] : [...(/^H[1-6]$/.test(n.type) ? [Number(n.type[1])] : []), ...n.kids.flatMap(levels)];
+  const all = pages.flatMap((html) => levels(buildPage(html, lang, "", () => {})));
+  const first = all[0] ?? 1, shift = first - 1;
+  if (!shift) return { shift };
+  const above = all.some((l) => l < first) ? ` Headings above h${first} are all tagged H1.` : "";
+  return { shift, detail: `The first heading is h${first}; every heading is tagged ${shift} level${shift > 1 ? "s" : ""} higher, so the first is H1.${above}` };
 }
 
-function walk(e: Elem, fn: (e: Elem) => void, skip?: Set<string>) {
-  if (skip?.has(e.tag)) return;
+function walk(e: Elem, fn: (e: Elem) => void) {
   fn(e);
-  for (const k of e.kids) if (typeof k !== "string") walk(k, fn, skip);
+  for (const k of e.kids) if (typeof k !== "string") walk(k, fn);
 }
 
 // Every word in reading order, each with the index of its top-level block.

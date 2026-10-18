@@ -8,7 +8,7 @@ import { StructTree } from "./pdf/struct.ts";
 import { setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
-import { buildPage, firstHeading, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
+import { buildPage, headingShift, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
 import { joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
 import { align, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
@@ -69,10 +69,8 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
-  // PDF/UA-1 wants the first heading to be H1. A page cut from mid-document starts lower,
-  // so every heading moves up by the same amount: their levels relative to each other stay.
-  const first = [...html.keys()].sort((a, b) => a - b).map((i) => firstHeading(html.get(i)!)).find((l) => l) ?? 1;
-  if (first > 1) warn({ code: "headings_shifted", detail: `The first heading is h${first}; every heading is tagged ${first - 1} level${first > 2 ? "s" : ""} higher, so the first is H1.` });
+  const { shift, detail } = headingShift([...html.keys()].sort((a, b) => a - b).map((i) => html.get(i)!), lang);
+  if (detail) warn({ code: "headings_shifted", detail });
   const marked = pagesWithMcids(doc);
   if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
@@ -92,7 +90,7 @@ export function tag(pdf: Uint8Array, input: PagesInput, opts: TagOptions = {}, r
       continue;
     }
     const r = tagPage(page, i, html.get(i)!, {
-      doc, struct, fonts, lang, flatten: !!opts.flatten, warn, maker, shift: first - 1,
+      doc, struct, fonts, lang, flatten: !!opts.flatten, warn, maker, shift,
       widgets: widgets.filter((w) => w.page === i), allWidgets: widgets,
     });
     report.pages.push(r.report);
