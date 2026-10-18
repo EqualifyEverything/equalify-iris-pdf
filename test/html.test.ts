@@ -32,11 +32,10 @@ test("lists get a label and a body per item", () => {
   assert.equal(ol.attrs!.ListNumbering, "LowerAlpha");
 });
 
-test("an equation is one Formula, with its alttext or else its tokens as Alt", () => {
-  const { top, warnings } = build('<p>So <math alttext="x squared"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
+test("an equation is one Formula, its tokens as words and its MathML spoken as Alt", () => {
+  const { top, warnings } = build('<p>So <math alttext="x^2"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
     + '<math display="block"><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math><math></math>');
-  // Without alttext the tokens lose the layout, so that is warned.
-  assert.deepEqual(warnings, [{ code: "missing_alt", detail: "math: a + b" }]);
+  assert.deepEqual(warnings, []);
   assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "."), Formula("a + b")');
   assert.equal(wordsInOrder(top).find((o) => o.word.text === "2")!.word.space ?? false, false);
   // An equation with alttext only still has text to own.
