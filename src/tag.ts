@@ -332,7 +332,7 @@ const placed = (w: PageWord, page: Box): Placed =>
   ({ box: [Math.max(w.box[0], page[0]), w.box[1], Math.min(w.box[2], page[2]), w.box[3]], baseline: w.baseline, size: w.size });
 
 // Words sharing one page word split its box across, by length.
-function share(p: Placed, lengths: number[], k: number): Placed {
+export function share(p: Placed, lengths: number[], k: number): Placed {
   if (lengths.length < 2) return p;
   const total = lengths.reduce((a, b) => a + b, 0) || 1, w = p.box[2] - p.box[0];
   const x0 = p.box[0] + (w * lengths.slice(0, k).reduce((a, b) => a + b, 0)) / total;

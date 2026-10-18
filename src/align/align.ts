@@ -44,11 +44,13 @@ export function align(html: string[], page: string[], budget = BUDGET): { match:
 // A page word that is several HTML words run together, as math often is (the
 // page's "2x", Iris's "2" "x"). Between two HTML words matched in page order,
 // unmatched HTML words that spell an unmatched page word between theirs,
-// letters and digits only, all match it. A run may skip up to SKIP words to
-// start. Several HTML tokens may then share one page token.
-const SKIP = 8;
+// letters and digits only, all match it; punctuation among them stays
+// unmatched. A run may skip up to SKIP words to start and spans at most RUN.
+// Several HTML tokens may then share one page token.
+const SKIP = 8, RUN = 32;
 export function matchRuns(html: string[], page: string[], match: number[]): number[] {
-  const out = match.slice(), bare = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "");
+  const bare = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "");
+  const out = match.slice(), hb = html.map(bare);
   const claimed = new Set(match.filter((t) => t >= 0));
   let k0 = -1;
   for (let k = 0; k <= html.length; k++) {
@@ -58,11 +60,11 @@ export function matchRuns(html: string[], page: string[], match: number[]): numb
       const want = bare(page[t]);
       if (claimed.has(t) || !want) continue;
       for (let start = i; start < Math.min(k, i + SKIP); start++) {
-        if (!bare(html[start])) continue;
+        if (!hb[start]) continue;
         let s = "", j = start;
-        while (j < k && s.length < want.length) s += bare(html[j++]);
+        while (j < Math.min(k, start + RUN) && s.length < want.length && want.startsWith(s + hb[j])) s += hb[j++];
         if (s !== want) continue;
-        for (let x = start; x < j; x++) out[x] = t;
+        for (let x = start; x < j; x++) if (hb[x]) out[x] = t;
         i = j;
         break;
       }

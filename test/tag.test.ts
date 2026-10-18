@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as mupdf from "mupdf";
 import { newReport, tag } from "../src/index.ts";
+import { share } from "../src/tag.ts";
 import { buildPage, wordsInOrder } from "../src/html/build.ts";
 import { normalize, splitWords } from "../src/align/words.ts";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
@@ -522,6 +523,12 @@ test("a character past U+FFFF in the source text matches the HTML", () => {
   tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>If 2𝑥 = 4</p>" }] }, {}, report);
   assert.ok(!report.warnings.some((w) => w.code === "unmatched_text"));
   assert.equal(report.pages[0].addedFromHtml, 0);
+});
+
+test("words sharing a page word split its box across, by length", () => {
+  const p = { box: [10, 0, 40, 10] as [number, number, number, number], baseline: 8, size: 10 };
+  assert.deepEqual([0, 1].map((k) => share(p, [1, 2], k).box), [[10, 0, 20, 10], [20, 0, 40, 10]]);
+  assert.equal(share(p, [3], 0), p);
 });
 
 test("math the page writes as one word matches Iris's separate tokens", () => {

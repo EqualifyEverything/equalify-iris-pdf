@@ -50,6 +50,7 @@ test("align stops when its work budget runs out, and stays fast when orders disa
 test("matchRuns gives HTML words run together on the page that page word", () => {
   // Math: the page's "5x)]" is Iris's "5" "x" ")" "]"; punctuation stays unmatched.
   assert.deepEqual(matchRuns(["solve", "5", "x", "", "", "now"], ["solve", "5x)]", "now"], [0, -1, -1, -1, -1, 2]), [0, 1, 1, -1, -1, 2]);
+  assert.deepEqual(matchRuns(["a", "5", "", "x", "b"], ["a", "5(x", "b"], [0, -1, -1, -1, 2]), [0, 1, -1, 1, 2]);
   // A word before the run is skipped.
   assert.deepEqual(matchRuns(["a", "then", "2", "x", "b"], ["a", "2x", "b"], [0, -1, -1, -1, 2]), [0, -1, 1, 1, 2]);
   // Not when the words spell something else, or the anchors are out of page order.
