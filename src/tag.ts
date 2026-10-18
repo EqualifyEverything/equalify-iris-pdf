@@ -10,7 +10,7 @@ import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, headingShift, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
 import { joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
-import { align, MAX_WORDS } from "./align/align.ts";
+import { align, matchRuns, MAX_WORDS } from "./align/align.ts";
 import { isFurniture } from "./align/classify.ts";
 import { ocrWords } from "./ocr/tesseract.ts";
 import { FieldMaker, fieldNames } from "./form/create.ts";
@@ -192,7 +192,11 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const tokens = joinHyphenated(words);
   if (Math.max(ordered.length, tokens.length) > MAX_WORDS)
     throw new IrisPdfError("too_many_words", `Page ${n} has more than ${MAX_WORDS} words.`);
-  const { match, complete } = align(ordered.map((o) => o.word.norm), tokens.map((t) => t.norm));
+  const htmlNorms = ordered.map((o) => o.word.norm), pageNorms = tokens.map((t) => t.norm);
+  const aligned = align(htmlNorms, pageNorms), complete = aligned.complete;
+  const match = matchRuns(htmlNorms, pageNorms, aligned.match);
+  const sharing = new Map<number, number[]>(); // page token -> the HTML words on it
+  match.forEach((t, k) => t >= 0 && sharing.set(t, [...(sharing.get(t) ?? []), k]));
   if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
   const blockOf = new Map<number, number>(), bounds = page.getBounds() as Box;
   const matched = new Set<Word>();
@@ -203,7 +207,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     }
     report.matched++;
     matched.add(ordered[k].word);
-    ordered[k].word.at = placed(words[tokens[t].words[0]], bounds);
+    ordered[k].word.at = share(placed(words[tokens[t].words[0]], bounds), sharing.get(t)!.map((x) => htmlNorms[x].length), sharing.get(t)!.indexOf(k));
     blockOf.set(t, ordered[k].block);
   });
   // With no page words, each block starts a new line, so blocks do not run together.
@@ -326,6 +330,14 @@ const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 // A word running off the page is squeezed onto it: extractors drop glyphs off the page.
 const placed = (w: PageWord, page: Box): Placed =>
   ({ box: [Math.max(w.box[0], page[0]), w.box[1], Math.min(w.box[2], page[2]), w.box[3]], baseline: w.baseline, size: w.size });
+
+// Words sharing one page word split its box across, by length.
+function share(p: Placed, lengths: number[], k: number): Placed {
+  if (lengths.length < 2) return p;
+  const total = lengths.reduce((a, b) => a + b, 0) || 1, w = p.box[2] - p.box[0];
+  const x0 = p.box[0] + (w * lengths.slice(0, k).reduce((a, b) => a + b, 0)) / total;
+  return { ...p, box: [x0, p.box[1], x0 + (w * lengths[k]) / total, p.box[3]] };
+}
 
 // An HTML word with no page word follows the word before it, at its natural
 // width, wrapping at the page edge: extractors drop text off the page, and

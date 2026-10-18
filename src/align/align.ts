@@ -41,6 +41,37 @@ export function align(html: string[], page: string[], budget = BUDGET): { match:
   return { match, complete: true };
 }
 
+// A page word that is several HTML words run together, as math often is (the
+// page's "2x", Iris's "2" "x"). Between two HTML words matched in page order,
+// unmatched HTML words that spell an unmatched page word between theirs,
+// letters and digits only, all match it. A run may skip up to SKIP words to
+// start. Several HTML tokens may then share one page token.
+const SKIP = 8;
+export function matchRuns(html: string[], page: string[], match: number[]): number[] {
+  const out = match.slice(), bare = (s: string) => s.replace(/[^\p{L}\p{N}]/gu, "");
+  const claimed = new Set(match.filter((t) => t >= 0));
+  let k0 = -1;
+  for (let k = 0; k <= html.length; k++) {
+    if (k < html.length && match[k] < 0) continue;
+    const lo = k0 < 0 ? -1 : match[k0], hi = k < html.length ? match[k] : page.length;
+    for (let t = lo + 1, i = k0 + 1; t < hi && i < k; t++) {
+      const want = bare(page[t]);
+      if (claimed.has(t) || !want) continue;
+      for (let start = i; start < Math.min(k, i + SKIP); start++) {
+        if (!bare(html[start])) continue;
+        let s = "", j = start;
+        while (j < k && s.length < want.length) s += bare(html[j++]);
+        if (s !== want) continue;
+        for (let x = start; x < j; x++) out[x] = t;
+        i = j;
+        break;
+      }
+    }
+    k0 = k;
+  }
+  return out;
+}
+
 // Scores between distinct words, filled in as the alignment asks for them.
 class Scores {
   h: Int32Array; p: Int32Array; // word ids
