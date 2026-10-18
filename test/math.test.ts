@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseHtml, type Elem } from "../src/html/parse.ts";
-import { speak } from "../src/html/math.ts";
+import { mathml, speak } from "../src/html/math.ts";
 
 const say = (mathml: string) => speak(parseHtml(`<math>${mathml}</math>`).kids[0] as Elem);
 
@@ -31,4 +31,12 @@ test("deeply nested MathML is spoken in linear time", () => {
   const start = Date.now();
   assert.equal(say("<mrow>".repeat(200) + "<mi>x</mi>" + "</mrow>".repeat(200)), "x");
   assert.ok(Date.now() - start < 1000);
+});
+
+test("MathML is written back as XML in the MathML namespace, escaped", () => {
+  const e = parseHtml('<math display="block"><mi>a</mi><mo>&lt;</mo><mtext>"b" &amp; c</mtext></math>').kids[0] as Elem;
+  assert.equal(mathml(e), '<math xmlns="http://www.w3.org/1998/Math/MathML" display="block"><mi>a</mi><mo>&lt;</mo><mtext>&quot;b&quot; &amp; c</mtext></math>');
+  // Malformed HTML still gives well-formed XML.
+  const bad = parseHtml('<math a"b=1 xmlns="x"><mtext>]]>&#1;</mtext><mi"x>y</mi"x></math>').kids[0] as Elem;
+  assert.equal(mathml(bad), '<math xmlns="http://www.w3.org/1998/Math/MathML"><mtext>]]&gt;</mtext>y</math>');
 });

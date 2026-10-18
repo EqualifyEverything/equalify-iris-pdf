@@ -104,7 +104,7 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   assert.deepEqual(unembeddedFonts(tiled), ["Courier"]);
 });
 
-test("an equation is a Formula with Alt that owns its words", () => {
+test("an equation is a Formula with Alt that owns its words, and its MathML as an associated file", () => {
   const pages = pagesOf("text-simple");
   pages.pages[0].html += '<p>Fee <math alttext="\\frac{x}{2}"><mfrac><mi>x</mi><mn>2</mn></mfrac></math></p>';
   const report = newReport();
@@ -113,6 +113,12 @@ test("an equation is a Formula with Alt that owns its words", () => {
   assert.equal(f.dict.get("Alt").asString(), "x over 2");
   assert.equal(f.text, "x 2");
   assert.equal(report.warnings.some((w) => w.code === "unmapped_element"), false);
+  const spec = f.dict.get("AF").get(0);
+  assert.equal(spec.get("AFRelationship").asName(), "Supplement");
+  assert.equal(spec.get("UF").asString(), "formula.mml");
+  assert.equal(doc.getEmbeddedFileContents(spec)!.asString(),
+    '<math xmlns="http://www.w3.org/1998/Math/MathML" alttext="\\frac{x}{2}"><mfrac><mi>x</mi><mn>2</mn></mfrac></math>');
+  assert.deepEqual(Object.keys(doc.getEmbeddedFiles()), []); // not an attachment
 });
 
 test("links: the Link element owns its annotation, which gets the link text", () => {

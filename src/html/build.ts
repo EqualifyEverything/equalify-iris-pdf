@@ -3,7 +3,7 @@
 // the alignment.
 import { parseHtml, textOf, type Elem } from "./parse.ts";
 import { STRUCT, TRANSPARENT, SKIP, listLabel, listNumbering } from "./map.ts";
-import { mathTokens, speak } from "./math.ts";
+import { mathTokens, mathml, speak } from "./math.ts";
 import { normalize, splitWords, type Box } from "../align/words.ts";
 import type { Warning } from "../report.ts";
 
@@ -23,6 +23,7 @@ export type Node = {
   type: string;
   kids: (Node | Run)[];
   alt?: string;
+  mathml?: string; // a Formula's MathML, attached to it as an associated file
   title?: string; // /T
   lang?: string;
   id?: string;
@@ -146,6 +147,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       if (!spoken && !clean(e.attrs.alttext ?? "")) ctx.warn({ code: "missing_alt", detail: `math: ${tokens}` }); // malformed, no alttext
       const f = add("Formula");
       f.alt = alt;
+      f.mathml = mathml(e);
       if (spoken && !inner.lang.startsWith("en")) f.lang = "en"; // the spoken words are English
       addText(f, tokens || alt, ctx.collect);
       return;

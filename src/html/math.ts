@@ -16,6 +16,21 @@ export function mathTokens(e: Elem | string): string[] {
   return SKIP.has(e.tag) ? [] : e.kids.flatMap(mathTokens);
 }
 
+// The MathML as well-formed XML, for a reader that speaks math itself. A name
+// XML does not allow is dropped (an element keeps its content), and so is a
+// character XML 1.0 does not allow.
+const NAME = /^[A-Za-z_][\w.-]*$/;
+const BAD = /[^\t\n\r\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu;
+const esc = (s: string) => s.replace(BAD, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+export function mathml(e: Elem): string {
+  const inner = e.kids.map((k) => (typeof k === "string" ? esc(k) : mathml(k))).join("");
+  if (!NAME.test(e.tag)) return inner;
+  const attrs = Object.entries(e.attrs).filter(([k]) => NAME.test(k) && k !== "xmlns");
+  if (e.tag === "math") attrs.unshift(["xmlns", "http://www.w3.org/1998/Math/MathML"]);
+  const open = e.tag + attrs.map(([k, v]) => ` ${k}="${esc(v)}"`).join("");
+  return `<${open}>${inner}</${e.tag}>`;
+}
+
 // "" for MathML that is malformed: a script or fraction with the wrong number of children.
 export function speak(e: Elem): string {
   const { text } = say(e);
