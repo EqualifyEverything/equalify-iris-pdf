@@ -92,11 +92,13 @@ function untag(doc: mupdf.PDFDocument): boolean {
       // A description we wrote is rewritten from the new HTML; the author's stays.
       if (a.get(DESCRIBED).isBoolean()) { a.delete("Contents"); a.delete(DESCRIBED); }
     });
-    if (!contents.isArray() || contents.length < 4) continue;
+    if (!contents.isArray() || contents.length < 3) continue;
     const body = (j: number) => { try { return contents.get(j).readStream().asString(); } catch { return null; } };
-    if (body(0) !== "/Artifact BMC q\n" || body(contents.length - 2) !== "\nQ EMC\n") continue;
+    // The frame, then the overlay if any.
+    const end = [contents.length - 1, contents.length - 2].find((j) => j > 1 && body(j) === "\nQ EMC\n");
+    if (body(0) !== "/Artifact BMC q\n" || end === undefined) continue;
     const original: mupdf.PDFObject[] = [];
-    for (let j = 1; j < contents.length - 2; j++) original.push(contents.get(j));
+    for (let j = 1; j < end; j++) original.push(contents.get(j));
     page.put("Contents", original);
     unmarkPage(doc, page); // the brackets around a figure's image
     restored = true;

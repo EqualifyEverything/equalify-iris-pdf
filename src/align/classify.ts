@@ -8,5 +8,12 @@ export function isFurniture(word: PageWord, pageHeight: number, pageNumber: numb
   const norm = normalize(word.text);
   if (!norm) return true; // bullets, rules and other punctuation
   if (norm === String(pageNumber)) return true;
-  return word.box[3] <= pageHeight * 0.1 || word.box[1] >= pageHeight * 0.9;
+  return atEdge(word, pageHeight);
 }
+
+// The page number, where a page number goes.
+export function isPageNumber(word: PageWord, pageHeight: number, pageNumber: number): boolean {
+  return normalize(word.text) === String(pageNumber) && atEdge(word, pageHeight);
+}
+
+const atEdge = (word: PageWord, pageHeight: number) => word.box[3] <= pageHeight * 0.1 || word.box[1] >= pageHeight * 0.9;

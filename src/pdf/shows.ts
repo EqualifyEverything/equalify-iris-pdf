@@ -3,6 +3,7 @@
 // tags mark the source's text where it is, instead of drawing it again.
 import * as mupdf from "mupdf";
 import { addBody, operators, pageBody, pageStreams, type Op } from "./content.ts";
+import { fullChar, fullLines } from "./words.ts";
 
 // One character code: bytes [from, to) of string item `item` of a show
 // operator, in text object `bt`. item -1: the operator cannot be cut, and is one code.
@@ -125,7 +126,8 @@ const col = (k: number) => {
 
 // The page body with each code drawn in the colour of key(op, code id), and
 // any other show or form in key(op, 0), XORed with mask. Text drawn
-// invisibly or only as a clip is filled, so mupdf reports its colour.
+// invisibly or only as a clip is filled, so mupdf reports its colour. Each
+// replacement is spaced off: a source may run operators together ("0 Tc[(a)]TJ").
 export function keyedBody(t: PageText, key: (op: number, id: number) => number, mask: number): string {
   let out = "", from = 0;
   t.ops.forEach((o, k) => {
@@ -133,10 +135,10 @@ export function keyedBody(t: PageText, key: (op: number, id: number) => number, 
     from = o.end;
     const op = t.body.slice(o.start, o.end), s = t.shows.get(k);
     if (s?.codes.length && t.codes[s.codes[0] - 1].item >= 0) {
-      out += s.codes.map((id, j) => `${col(key(k, id) ^ mask)} ${showText(t, s, j, j + 1)}`).join(" ");
-    } else if (s?.codes.length) out += `${col(key(k, s.codes[0]) ^ mask)} ${op}`;
-    else if (SHOW.has(o.op) || o.op === "Do") out += `${col(key(k, 0) ^ mask)} ${op}`;
-    else if (o.op === "Tr" && (o.args[0] === "3" || o.args[0] === "7")) out += "0 Tr";
+      out += " " + s.codes.map((id, j) => `${col(key(k, id) ^ mask)} ${showText(t, s, j, j + 1)}`).join(" ") + " ";
+    } else if (s?.codes.length) out += ` ${col(key(k, s.codes[0]) ^ mask)} ${op}`;
+    else if (SHOW.has(o.op) || o.op === "Do") out += ` ${col(key(k, 0) ^ mask)} ${op}`;
+    else if (o.op === "Tr" && (o.args[0] === "3" || o.args[0] === "7")) out += " 0 Tr ";
     else out += op;
   });
   return out + t.body.slice(from);
@@ -153,14 +155,15 @@ export function keyedChars(doc: mupdf.PDFDocument, page: mupdf.PDFPage, body: (m
   const obj = page.getObject(), old = obj.get("Contents");
   const read = (mask: number) => {
     const s = addBody(doc, body(mask)), out: KeyedChar[] = [];
-    let line = -1;
+    let line = -1, at = 0;
     obj.put("Contents", s);
     try {
-      page.toDisplayList(false).toStructuredText("").walk({
-        beginLine() { line++; },
+      const stext = page.toDisplayList(false).toStructuredText(""), lines = fullLines(stext);
+      stext.walk({
+        beginLine() { line++, at = 0; },
         onChar(c, _o, _f, _s, _q, color) {
           const [r, g, b] = (color ?? []).map((x) => Math.round(x * 255));
-          out.push({ c, line, key: (((r << 16) | (g << 8) | b) ^ mask) >>> 0 });
+          out.push({ c: fullChar(c, lines[line]?.[at++]), line, key: (((r << 16) | (g << 8) | b) ^ mask) >>> 0 });
         },
       });
     } catch {
@@ -207,12 +210,12 @@ export function artifactStreams(doc: mupdf.PDFDocument, page: mupdf.PDFObject, f
       if (o.op === "ET") inBT = false;
       if (figures.has(k)) out += `\n${leave()}/Figure <</MCID ${figures.get(k)}>> BDC\n${op}\nEMC ${back()}\n`;
       else if (here && o.op === "BT") (cur = null), (out += `\n${leave()}BT /Artifact BMC `);
-      else if (here && o.op === "ET") out += `EMC ET ${back()}\n`;
+      else if (here && o.op === "ET") out += ` EMC ET ${back()}\n`;
       else if (here && show?.codes.length) {
         const m = (j: number) => mark(show.codes[j]) ?? null, n = show.codes.length;
         for (let a = 0, j = 1; j <= n; j++) {
           if (j < n && m(j) === m(a)) continue;
-          out += to(m(a)) + (a === 0 && j === n ? op : showText(t!, show, a, j)) + " ";
+          out += " " + to(m(a)) + (a === 0 && j === n ? op : showText(t!, show, a, j)) + " ";
           a = j;
         }
       } else {

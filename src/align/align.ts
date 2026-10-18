@@ -74,6 +74,22 @@ export function matchRuns(html: string[], page: string[], match: number[]): numb
   return out;
 }
 
+// Alignment skips words with no letters or digits, such as a formula's "+".
+// Between two matched words with as many page tokens as HTML words in the
+// gap, each pair that reads the same (as NFKC) matches.
+export function matchMarks(html: string[], page: string[], match: number[]): number[] {
+  const out = [...match], nf = (s: string) => s.normalize("NFKC");
+  let k0 = -1;
+  for (let k = 0; k < out.length; k++) {
+    if (out[k] < 0) continue;
+    const a = out[k0] ?? -1, gap = k - k0 - 1;
+    if (k0 >= 0 && gap > 0 && out[k] - a - 1 === gap)
+      for (let j = 1; j <= gap; j++) if (nf(html[k0 + j]) === nf(page[a + j])) out[k0 + j] = a + j;
+    k0 = k;
+  }
+  return out;
+}
+
 // Scores between distinct words, filled in as the alignment asks for them.
 class Scores {
   h: Int32Array; p: Int32Array; // word ids
