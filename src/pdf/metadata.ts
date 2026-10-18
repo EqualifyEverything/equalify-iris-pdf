@@ -9,6 +9,7 @@ export function setDocumentInfo(doc: mupdf.PDFDocument, lang: string, title: str
   const root = doc.getTrailer().get("Root");
   root.put("Lang", doc.newString(lang));
   root.put("MarkInfo", { Marked: true });
+  nameLayerConfigs(doc, root);
   const meta = root.get("Metadata");
   const old = meta.isStream() ? meta.readStream().asString() : "";
   if (!title && !claimUa && !old) return;
@@ -19,6 +20,30 @@ export function setDocumentInfo(doc: mupdf.PDFDocument, lang: string, title: str
     doc.setMetaData("info:Title", title);
   }
   root.put("Metadata", doc.addStream(xmp(old, title, claimUa), { Type: "Metadata", Subtype: "XML" }));
+}
+
+// PDF/UA-1 7.10: every optional content configuration needs a /Name. It changes no pixel.
+function nameLayerConfigs(doc: mupdf.PDFDocument, root: mupdf.PDFObject) {
+  const oc = root.get("OCProperties");
+  if (!oc.isDictionary()) return;
+  const name = (d: mupdf.PDFObject, text: string) => {
+    if (!d.isDictionary()) return;
+    const had = d.get("Name");
+    if (!(had.isString() && had.asString())) d.put("Name", doc.newString(text));
+  };
+  name(oc.get("D"), "Default");
+  const configs = oc.get("Configs");
+  if (configs.isArray()) configs.forEach((c, i) => name(c, `Configuration ${Number(i) + 1}`));
+}
+
+// PDF/UA-1 7.10 also forbids /AS in a configuration. Removing it could change which layers a
+// viewer shows, which the pixel check would not see, so such a file makes no claim instead.
+export function layersAutoState(doc: mupdf.PDFDocument): boolean {
+  const oc = doc.getTrailer().get("Root", "OCProperties");
+  if (!oc.isDictionary()) return false;
+  const configs = [oc.get("D")];
+  oc.get("Configs").forEach((c) => configs.push(c));
+  return configs.some((c) => c.isDictionary() && !c.get("AS").isNull());
 }
 
 // Our title and PDF/UA claim go in their own rdf:Description. Any title or

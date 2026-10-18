@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { tesseractInstalled } from "../src/ocr/tesseract.ts";
 import { checkPdfUa } from "../src/verify/pdfua.ts";
 import { newReport, tag } from "../src/index.ts";
-import { fixture, pagesOf, readFixture, tagFixture } from "./helpers.ts";
+import { fixture, pagesOf, readFixture, tagFixture, withLayers } from "./helpers.ts";
 
 const noVera = !process.env.IRIS_REQUIRE_VERAPDF && !!spawnSync("verapdf", ["--version"]).error && "veraPDF is not installed";
 const noOcr = !tesseractInstalled() && "Tesseract is not installed";
@@ -53,6 +53,14 @@ test("a page cut from mid-document, starting at h2, claims PDF/UA-1 and passes v
   const path = join(dir, "first-h2.pdf");
   writeFileSync(path, out);
   assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);
+  const { passed, message } = checkPdfUa(path);
+  assert.equal(passed, true, message);
+});
+
+test("a PDF with unnamed optional content configurations claims PDF/UA-1 and passes veraPDF", { skip: noVera }, () => {
+  const out = tag(withLayers(), pagesOf("text-embedded"), {}, newReport());
+  const path = join(dir, "layers.pdf");
+  writeFileSync(path, out);
   const { passed, message } = checkPdfUa(path);
   assert.equal(passed, true, message);
 });

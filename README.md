@@ -87,7 +87,7 @@ A page that could not be tagged is left untagged, with a warning, and the run st
 
 ## PDF/UA
 
-The output declares PDF/UA-1 only when it has a title, every page is tagged, every source font is embedded, and no page drawing has leftover marked content. The tests check each such claim with veraPDF.
+The output declares PDF/UA-1 only when it has a title, every page is tagged, every source font is embedded, and no page drawing has leftover marked content. An optional content (layer) configuration without a name is given one, as PDF/UA-1 requires; one with `/AS`, which PDF/UA-1 forbids, is left as it is and stops the claim (warning `layer_auto_state`), since removing it could change which layers a viewer shows. The tests check each such claim with veraPDF.
 
 ## Refusals and exit codes
 
