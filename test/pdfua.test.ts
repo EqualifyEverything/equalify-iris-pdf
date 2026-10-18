@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import * as mupdf from "mupdf";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +54,20 @@ test("a page cut from mid-document, starting at h2, claims PDF/UA-1 and passes v
   const path = join(dir, "first-h2.pdf");
   writeFileSync(path, out);
   assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);
+  const { passed, message } = checkPdfUa(path);
+  assert.equal(passed, true, message);
+});
+
+test("optional content configurations get the name PDF/UA-1 requires", { skip: noVera }, () => {
+  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const ocg = src.addObject({ Type: "OCG", Name: src.newString("Layer") });
+  src.getTrailer().get("Root").put("OCProperties", { OCGs: [ocg], D: { Order: [ocg] }, Configs: [{ Order: [ocg] }] });
+  const out = tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, newReport());
+  const oc = new mupdf.PDFDocument(out).getTrailer().get("Root", "OCProperties");
+  assert.equal(oc.get("D", "Name").asString(), "Default");
+  assert.equal(oc.get("Configs").get(0).get("Name").asString(), "Configuration 1");
+  const path = join(dir, "layers.pdf");
+  writeFileSync(path, out);
   const { passed, message } = checkPdfUa(path);
   assert.equal(passed, true, message);
 });
