@@ -32,6 +32,21 @@ test("lists get a label and a body per item", () => {
   assert.equal(ol.attrs!.ListNumbering, "LowerAlpha");
 });
 
+test("an equation is one Formula, with its alttext or else its tokens as Alt", () => {
+  const { top, warnings } = build('<p>So <math alttext="x squared"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
+    + '<math display="block"><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math><math></math>');
+  // Without alttext the tokens lose the layout, so that is warned.
+  assert.deepEqual(warnings, [{ code: "missing_alt", detail: "math: a + b" }]);
+  assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "."), Formula("a + b")');
+  assert.equal(wordsInOrder(top).find((o) => o.word.text === "2")!.word.space ?? false, false);
+  // An equation with alttext only still has text to own.
+  assert.equal(kids('<math alttext="pi"></math>'), 'Formula("pi")');
+  const alts: string[] = [];
+  const visit = (n: Node) => { if (n.type === "Formula") alts.push(n.alt!); n.kids.forEach((k) => isRun(k) || visit(k)); };
+  visit(top);
+  assert.deepEqual(alts, ["x squared", "a + b"]);
+});
+
 test("images: alt text, decorative and missing", () => {
   const { top, warnings } = build('<img alt="A map"><img alt=""><img src="x.png">');
   assert.deepEqual(top.kids.map((k) => [(k as Node).type, (k as Node).alt]), [["Figure", "A map"]]);

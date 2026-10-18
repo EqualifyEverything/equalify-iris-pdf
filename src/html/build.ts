@@ -119,6 +119,18 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
       Object.assign(add("Figure"), { alt: e.attrs.alt, image });
       return;
     }
+    case "math": {
+      // One Formula per equation (PDF/UA-1 7.7). Its words are the tokens; a TeX annotation is not read.
+      // Without alttext, the tokens stand in, but they lose the layout (x² is "x 2").
+      const tokens = mathTokens(e).join(" ");
+      const alt = clean(e.attrs.alttext ?? "");
+      if (!alt && !tokens) return;
+      if (!alt) ctx.warn({ code: "missing_alt", detail: `math: ${tokens}` });
+      const f = add("Formula");
+      f.alt = alt || tokens;
+      addText(f, tokens || alt, ctx.collect);
+      return;
+    }
     case "a": {
       // An internal link is a Reference; the Link inside it owns the annotation.
       const internal = e.attrs.href.startsWith("#");
@@ -266,6 +278,15 @@ const word = (text: string): Word => ({ text, norm: normalize(text) });
 const lastWord = (n: Node | Run): Word | undefined => (isRun(n) ? n.words.at(-1) : n.kids.length ? lastWord(n.kids.at(-1)!) : undefined);
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 
+// A MathML element's token texts (mi, mn, mo, mtext, ms), in order.
+const ANNOTATION = new Set(["annotation", "annotation-xml"]);
+function mathTokens(e: Elem): string[] {
+  return e.kids.flatMap((k) => {
+    if (typeof k === "string") return clean(k) ? [clean(k)] : [];
+    return ANNOTATION.has(k.tag) ? [] : mathTokens(k);
+  });
+}
+
 function walk(e: Elem, fn: (e: Elem) => void) {
   fn(e);
   for (const k of e.kids) if (typeof k !== "string") walk(k, fn);
@@ -273,7 +294,7 @@ function walk(e: Elem, fn: (e: Elem) => void) {
 
 // Every word in reading order, each with the index of its top-level block.
 // newLine: the word is the first in, or after, a block element.
-const INLINE = new Set(["Link", "Reference", "Code", "Lbl", "LBody"]);
+const INLINE = new Set(["Link", "Reference", "Code", "Lbl", "LBody", "Formula"]);
 export function wordsInOrder(top: Node): { word: Word; block: number; newLine: boolean }[] {
   const out: { word: Word; block: number; newLine: boolean }[] = [];
   let newLine = true;
