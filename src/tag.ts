@@ -363,6 +363,16 @@ function fillPositions(words: Word[], page: Box, width: (text: string) => number
   }
 }
 
+// MathML as an associated file (ISO 32000-2 14.13), read by Firefox and by NVDA in Foxit.
+// It is not listed in /EmbeddedFiles, so it does not show as an attachment.
+function mathFile(doc: mupdf.PDFDocument, xml: string): mupdf.PDFObject {
+  const now = new Date();
+  const spec = doc.addEmbeddedFile("formula.mml", "application/mathml+xml", xml, now, now);
+  spec.put("AFRelationship", doc.newName("Supplement"));
+  spec.put("Desc", doc.newString("MathML"));
+  return spec;
+}
+
 function emit(n: Node, parent: mupdf.PDFObject, e: Emitter) {
   const { doc, struct } = e;
   if (n.type === "Form") return emitField(n, parent, e);
@@ -370,6 +380,7 @@ function emit(n: Node, parent: mupdf.PDFObject, e: Emitter) {
   if (n.alt) extra.Alt = doc.newString(n.alt);
   if (n.title) extra.T = doc.newString(n.title);
   if (n.lang) extra.Lang = doc.newString(n.lang);
+  if (n.mathml) extra.AF = [mathFile(doc, n.mathml)];
   if (n.attrs || n.headers) extra.A = { ...n.attrs, ...(n.headers ? { O: "Table", Headers: n.headers.map((h) => doc.newString(h)) } : {}) };
   const elem = struct.add(parent, n.type, extra);
   if (n.id) struct.id(elem, n.id);

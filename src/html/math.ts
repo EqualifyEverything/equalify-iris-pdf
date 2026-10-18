@@ -16,6 +16,14 @@ export function mathTokens(e: Elem | string): string[] {
   return SKIP.has(e.tag) ? [] : e.kids.flatMap(mathTokens);
 }
 
+// The MathML as XML, for a reader that speaks math itself.
+export function mathml(e: Elem): string {
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+  const attrs = { ...(e.tag === "math" ? { xmlns: "http://www.w3.org/1998/Math/MathML" } : {}), ...e.attrs };
+  const open = e.tag + Object.entries(attrs).map(([k, v]) => ` ${k}="${esc(v)}"`).join("");
+  return `<${open}>${e.kids.map((k) => (typeof k === "string" ? esc(k) : mathml(k))).join("")}</${e.tag}>`;
+}
+
 // "" for MathML that is malformed: a script or fraction with the wrong number of children.
 export function speak(e: Elem): string {
   const { text } = say(e);
