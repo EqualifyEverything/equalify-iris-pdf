@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildPage, isRun, wordsInOrder, type FormRef, type Node } from "../src/html/build.ts";
+import { buildPage, headingShift, isRun, wordsInOrder, type FormRef, type Node } from "../src/html/build.ts";
 import type { Warning } from "../src/report.ts";
 
 function build(html: string) {
@@ -21,6 +21,16 @@ test("block elements map to PDF structure types", () => {
     'H1("Title"), P("Some body text."), BlockQuote("Q")');
   assert.equal(kids("loose text"), 'P("loose text")');
   assert.equal(kids("<nav aria-label=Menu><p>x</p></nav>"), 'Sect(P("x"))');
+});
+
+test("headings move up together when the document starts below h1", () => {
+  const top = buildPage("<h3>Results</h3><h4>Setup</h4><h2>Next</h2>", "en", "p1-", () => {}, 2);
+  assert.deepEqual(top.kids.map((k) => (k as Node).type), ["H1", "H2", "H1"]);
+  // The first heading of the document, across pages, counting only headings the tree keeps.
+  assert.deepEqual(headingShift(["<p>none</p>", "<script><h1>x</h1></script><section><h3>b</h3></section><h4>c</h4>"], "en"),
+    { shift: 2, detail: "The first heading is h3; every heading is tagged 2 levels higher, so the first is H1." });
+  assert.match(headingShift(["<h2>a</h2>", "<h1>b</h1>"], "en").detail!, /Headings above h2 are all tagged H1\.$/);
+  assert.deepEqual(headingShift(["<p>a</p><h1>b</h1><h3>c</h3>"], "en"), { shift: 0 });
 });
 
 test("lists get a label and a body per item", () => {
