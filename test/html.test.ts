@@ -38,6 +38,10 @@ test("lists get a label and a body per item", () => {
     'L(LI(Lbl("3."), LBody("a")), LI(Lbl("4."), LBody("b")))');
   assert.equal(kids("<ul><li>a</li></ul>"), 'L(LI(Lbl("•"), LBody("a")))');
   assert.equal(kids("<dl><dt>t</dt><dd>d</dd><dt>u</dt><dd>e</dd></dl>"), 'L(LI(Lbl("t"), LBody("d")), LI(Lbl("u"), LBody("e")))');
+  assert.equal(kids("<ol type=a><li>a</li><li value=27>b</li></ol>"), 'L(LI(Lbl("a."), LBody("a")), LI(Lbl("aa."), LBody("b")))');
+  assert.equal(kids("<ol type=I reversed><li>a</li><li>b</li><li>c</li><li>d</li></ol>"),
+    'L(LI(Lbl("IV."), LBody("a")), LI(Lbl("III."), LBody("b")), LI(Lbl("II."), LBody("c")), LI(Lbl("I."), LBody("d")))');
+  assert.equal(kids("<ol type=a start=0><li>a</li></ol>"), 'L(LI(Lbl("0."), LBody("a")))');
   const ol = build("<ol type=a><li>x</li></ol>").top.kids[0] as Node;
   assert.equal(ol.attrs!.ListNumbering, "LowerAlpha");
 });

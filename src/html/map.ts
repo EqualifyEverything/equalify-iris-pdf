@@ -31,3 +31,19 @@ export function listNumbering(tag: string, type?: string): string {
   if (tag !== "ol") return tag === "ul" ? "Disc" : "None";
   return { a: "LowerAlpha", A: "UpperAlpha", i: "LowerRoman", I: "UpperRoman" }[type ?? ""] ?? "Decimal";
 }
+
+// An <ol> item's number as a browser shows it: decimal where letters or
+// roman numerals can't say it.
+export function listLabel(type: string | undefined, n: number): string {
+  let s = "";
+  if ((type === "a" || type === "A") && n > 0) {
+    for (let m = n; m > 0; m = Math.floor((m - 1) / 26)) s = String.fromCharCode(97 + ((m - 1) % 26)) + s;
+  } else if ((type === "i" || type === "I") && n > 0 && n < 4000) {
+    let m = n;
+    for (const [v, r] of ROMAN) for (; m >= v; m -= v) s += r;
+  } else return String(n);
+  return type === "A" || type === "I" ? s.toUpperCase() : s;
+}
+
+const ROMAN: [number, string][] = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
+  [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]];

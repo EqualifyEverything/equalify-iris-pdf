@@ -2,7 +2,7 @@
 // structure types whose leaves are words. Positions are filled in later by
 // the alignment.
 import { parseHtml, textOf, type Elem } from "./parse.ts";
-import { STRUCT, TRANSPARENT, SKIP, listNumbering } from "./map.ts";
+import { STRUCT, TRANSPARENT, SKIP, listLabel, listNumbering } from "./map.ts";
 import { mathTokens, speak } from "./math.ts";
 import { normalize, splitWords, type Box } from "../align/words.ts";
 import type { Warning } from "../report.ts";
@@ -95,10 +95,14 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
     case "ul": case "ol": {
       const list = add("L");
       list.attrs = { O: "List", ListNumbering: listNumbering(e.tag, e.attrs.type) };
-      let n = Number(e.attrs.start ?? 1);
+      const items = e.kids.filter((k) => typeof k !== "string" && k.tag === "li").length;
+      const step = "reversed" in e.attrs ? -1 : 1;
+      let n = int(e.attrs.start) ?? (step < 0 ? items : 1);
       for (const k of e.kids) {
-        if (typeof k !== "string" && k.tag === "li") listItem(k, list, e.tag === "ol" ? `${n++}.` : "•", inner);
-        else build(k, list, inner);
+        if (typeof k === "string" || k.tag !== "li") { build(k, list, inner); continue; }
+        n = int(k.attrs.value) ?? n;
+        listItem(k, list, e.tag === "ol" ? `${listLabel(e.attrs.type, n)}.` : "•", inner);
+        n += step;
       }
       return;
     }
@@ -192,6 +196,8 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
   if (type === "LBody") { const w = lastWord(parent); if (w) w.space = true; } // after its <dt>
   kids(add(type ?? "P"), inner);
 }
+
+const int = (v: string | undefined) => (v && /^\s*[+-]?\d+\s*$/.test(v) ? Number(v) : undefined);
 
 function listItem(e: Elem, parent: Node, label: string, ctx: Ctx) {
   const li: Node = { type: "LI", kids: [] };
