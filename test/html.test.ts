@@ -33,10 +33,14 @@ test("lists get a label and a body per item", () => {
 });
 
 test("an equation is one Formula, with its alttext or else its tokens as Alt", () => {
-  const { top, warnings } = build('<p>So <math alttext="x squared"><msup><mi>x</mi><mn>2</mn></msup></math> grows.</p>'
+  const { top, warnings } = build('<p>So <math alttext="x squared"><msup><mi>x</mi><mn>2</mn></msup></math>.</p>'
     + '<math display="block"><semantics><mrow><mi>a</mi><mo>+</mo><mi>b</mi></mrow><annotation encoding="application/x-tex">a+b</annotation></semantics></math><math></math>');
-  assert.deepEqual(warnings, []);
-  assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "grows."), Formula("a + b")');
+  // Without alttext the tokens lose the layout, so that is warned.
+  assert.deepEqual(warnings, [{ code: "missing_alt", detail: "math: a + b" }]);
+  assert.equal(top.kids.map(shape).join(", "), 'P("So", Formula("x 2"), "."), Formula("a + b")');
+  assert.equal(wordsInOrder(top).find((o) => o.word.text === "2")!.word.space ?? false, false);
+  // An equation with alttext only still has text to own.
+  assert.equal(kids('<math alttext="pi"></math>'), 'Formula("pi")');
   const alts: string[] = [];
   const visit = (n: Node) => { if (n.type === "Formula") alts.push(n.alt!); n.kids.forEach((k) => isRun(k) || visit(k)); };
   visit(top);

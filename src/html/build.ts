@@ -121,12 +121,14 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
     }
     case "math": {
       // One Formula per equation (PDF/UA-1 7.7). Its words are the tokens; a TeX annotation is not read.
-      const tokens = mathTokens(e);
-      const alt = clean(e.attrs.alttext ?? "") || tokens.join(" ");
-      if (!alt) return;
+      // Without alttext, the tokens stand in, but they lose the layout (x² is "x 2").
+      const tokens = mathTokens(e).join(" ");
+      const alt = clean(e.attrs.alttext ?? "");
+      if (!alt && !tokens) return;
+      if (!alt) ctx.warn({ code: "missing_alt", detail: `math: ${tokens}` });
       const f = add("Formula");
-      f.alt = alt;
-      for (const t of tokens) addText(f, `${t} `, ctx.collect);
+      f.alt = alt || tokens;
+      addText(f, tokens || alt, ctx.collect);
       return;
     }
     case "a": {
