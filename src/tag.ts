@@ -10,7 +10,7 @@ import { layersAutoState, setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
 import { allWidgets, checkValues, inventory, onStates, setValues, type FormValue, type Widget } from "./pdf/widgets.ts";
 import { buildPage, headingShift, isRun, wordsInOrder, type Node, type Placed, type Run, type Word } from "./html/build.ts";
-import { joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
+import { fold, joinHyphenated, normalize, type Box, type PageWord } from "./align/words.ts";
 import { align, matchMarks, matchRuns, MAX_WORDS } from "./align/align.ts";
 import { isFurniture, isPageNumber } from "./align/classify.ts";
 import { ocrWords } from "./ocr/tesseract.ts";
@@ -261,7 +261,8 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
       const drawn = [...on.map((p) => p.text).join("")], all = on.flatMap((p) => p.codes!);
       const text = (j: number) => (ks.includes(j) || match[j] === -1 ? ordered[j]?.word.text ?? null : null);
       const split = on.length === 1 ? spread(drawn, text, k, ks.at(-1)!) : null;
-      if (ks.length === 1 && drawn.join("").normalize("NFKC") === w.text.normalize("NFKC")) codes.set(w, unique(all));
+      // The page's own quote or dash is kept: where they differ, the HTML is as likely wrong.
+      if (ks.length === 1 && sameText(drawn.join(""), w.text)) codes.set(w, unique(all));
       else if (split) for (const [j, from, to] of split) codes.set(ordered[j].word, unique(all.slice(from, to)));
       else if (ks.length === 1 && (tokens[t].norm === w.norm || marksOf(drawn.join("")) === marksOf(w.text))) {
         // Spelled with other marks, such as a line-end hyphen, or misread by OCR: read as the HTML's word.
@@ -450,6 +451,7 @@ const tiles = (a: Box, b: Box) =>
 
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const unique = (xs: number[]) => [...new Set(xs)];
+const sameText = (a: string, b: string) => fold(a.normalize("NFKC")) === fold(b.normalize("NFKC"));
 const marksOf = (s: string) => s.normalize("NFKC").replace(/\p{L}/gu, ""); // digits count: "website.1" is not "website."
 // A page word drawn as HTML words lo..hi, and the unmatched HTML words
 // beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each
