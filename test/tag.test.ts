@@ -606,16 +606,19 @@ test("a word OCR misread is tagged where it is, read as the HTML's word", () => 
   }
 });
 
-test("a typographic apostrophe matches the HTML's plain one in place", () => {
+// Where the page's quote or dash and the HTML's differ, the HTML is as likely
+// wrong, so the page's own is read: no ActualText.
+test("a typographic apostrophe matches the HTML's plain one in place, and is read as the page's", () => {
   const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (Verkamp\\222s store) Tj ET", "<p>Verkamp's store</p>");
   assert.equal(report.pages[0].redrawn, 0);
-  assert.equal(readingOrder(root), "Verkamp's store");
+  assert.equal(readingOrder(root), "Verkamp’s store");
+  assert.equal(find(root, "Span").length, 0);
 });
 
-test("a dash the HTML writes differently is the page's own, read as the HTML's", () => {
+test("a dash the HTML writes differently is the page's own, read as the page's", () => {
   const { root, report, after } = tagContent("BT /F1 12 Tf 20 200 Td (Library Hours \\227 Fall Term) Tj ET", "<p>Library Hours – Fall Term</p>");
-  assert.equal(readingOrder(root), "Library Hours – Fall Term");
-  assert.equal(after.trim(), "Library Hours – Fall Term", "one dash, not two"); // mupdf reads the ActualText
+  assert.equal(readingOrder(root), "Library Hours — Fall Term");
+  assert.equal(after.trim(), "Library Hours — Fall Term", "one dash, not two");
   assert.equal(report.pages[0].redrawn, 0);
 });
 
