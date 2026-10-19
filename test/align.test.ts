@@ -67,6 +67,8 @@ test("matchMarks matches punctuation between matched words, one for one", () => 
   // NFKC: a full-width "＝" is "=".
   assert.deepEqual(matchMarks(["x", "="], ["x", "＝", "y"], [0, -1]), [0, -1]);
   assert.deepEqual(matchMarks(["x", "=", "y"], ["x", "＝", "y"], [0, -1, 2]), [0, 1, 2]);
+  // Dashes and quotes fold: an en dash is the page's em dash.
+  assert.deepEqual(matchMarks(["x", "–", "y"], ["x", "—", "y"], [0, -1, 2]), [0, 1, 2]);
   // Not when the gaps differ in length, or the marks differ.
   assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "+", "-", "y"], [0, -1, 3]), [0, -1, 3]);
   assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "-", "y"], [0, -1, 2]), [0, -1, 2]);
