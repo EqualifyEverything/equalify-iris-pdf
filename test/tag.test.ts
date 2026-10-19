@@ -619,6 +619,7 @@ test("a dash the HTML writes differently is the page's own, read as the page's",
   const { root, report, after } = tagContent("BT /F1 12 Tf 20 200 Td (Library Hours \\227 Fall Term) Tj ET", "<p>Library Hours – Fall Term</p>");
   assert.equal(readingOrder(root), "Library Hours — Fall Term");
   assert.equal(after.trim(), "Library Hours — Fall Term", "one dash, not two");
+  assert.equal(find(root, "Span").length, 0);
   assert.equal(report.pages[0].redrawn, 0);
 });
 
