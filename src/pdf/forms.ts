@@ -16,10 +16,16 @@ export function inlinePage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, body: st
   const obj = page.getObject(), contents = obj.get("Contents"), res = obj.get("Resources");
   const inlined = inlineForms(doc, obj, body, max);
   if (inlined !== body) {
-    const m = mupdf.Matrix.scale(dpi / 72, dpi / 72), pixels = () => page.toPixmap(m, mupdf.ColorSpace.DeviceRGB, false, true).getPixels();
+    const m = mupdf.Matrix.scale(dpi / 72, dpi / 72);
+    // Copied out: getPixels() is a view of mupdf's memory, which a later render may reuse or move.
+    const pixels = () => {
+      const p = page.toPixmap(m, mupdf.ColorSpace.DeviceRGB, false, true), out = Buffer.from(p.getPixels());
+      p.destroy();
+      return out;
+    };
     const before = pixels();
     obj.put("Contents", addBody(doc, inlined));
-    if (Buffer.from(pixels()).equals(Buffer.from(before))) return inlined;
+    if (pixels().equals(before)) return inlined;
     obj.put("Contents", contents);
   }
   if (res.isNull()) obj.delete("Resources");

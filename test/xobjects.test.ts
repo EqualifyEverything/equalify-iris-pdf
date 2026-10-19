@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as mupdf from "mupdf";
 import { newReport, tag } from "../src/index.ts";
 import { pageBody } from "../src/pdf/content.ts";
-import { inlineForms } from "../src/pdf/forms.ts";
+import { inlineForms, inlinePage } from "../src/pdf/forms.ts";
 import { readingOrder, structTree } from "./helpers.ts";
 
 const PAGE = "BT /F1 12 Tf 20 250 Td (Title) Tj ET /G0 gs /X0 Do";
@@ -36,6 +36,14 @@ test("text a form XObject draws is tagged where it is, the form drawn in the pag
   assert.doesNotMatch(body, /\/X0 Do/);
   assert.match(body, /q 1 0 0 1 20 200 cm 0 -5 200 25 re W n/);
   assert.match(body, /\/F1_f1 12 Tf/, "the form's F1 is not the page's, so it gets a name of its own");
+});
+
+test("a large page is compared on its own pixels, however mupdf reuses its memory", () => {
+  const doc = new mupdf.PDFDocument(), font = doc.addSimpleFont(new mupdf.Font("Helvetica"));
+  const x = doc.addStream("BT /F1 12 Tf 0 0 Td (Hello) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 300, 300], Resources: { Font: { F1: font } } });
+  doc.insertPage(-1, doc.addPage([0, 0, 2400, 2400], 0, { XObject: { X: x } }, "/X Do"));
+  const page = doc.loadPage(0) as mupdf.PDFPage;
+  assert.notEqual(inlinePage(doc, page, "/X Do", 150, 1e6), "/X Do");
 });
 
 test("a form with optional content is drawn inside that optional content", () => {
