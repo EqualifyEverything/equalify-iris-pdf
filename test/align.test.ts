@@ -12,6 +12,8 @@ test("normalize ignores case, accents and edge punctuation", () => {
   assert.equal(normalize("(Résumé)"), "resume");
   assert.equal(normalize("—"), "");
   assert.equal(normalize("ﬁle"), "file"); // ligature
+  assert.equal(normalize("Verkamp’s"), "verkamp's"); // typographic quotes and dashes
+  assert.equal(normalize("“1–2—3”"), "1-2-3");
 });
 
 test("splitWords splits on spaces and between CJK characters", () => {
@@ -56,6 +58,8 @@ test("matchRuns gives HTML words run together on the page that page word", () =>
   // Not when the words spell something else, or the anchors are out of page order.
   assert.deepEqual(matchRuns(["a", "2", "y", "b"], ["a", "2x", "b"], [0, -1, -1, 2]), [0, -1, -1, 2]);
   assert.deepEqual(matchRuns(["a", "2", "x", "b"], ["b", "2x", "a"], [2, -1, -1, 0]), [2, -1, -1, 0]);
+  // Gaps out of page order that cover the same page word: only the first gets it.
+  assert.deepEqual(matchRuns(["a", "2", "x", "b", "c", "2", "x", "d"], ["a", "c", "2x", "b", "d"], [0, -1, -1, 3, 1, -1, -1, 4]), [0, 2, 2, 3, 1, -1, -1, 4]);
 });
 
 test("matchMarks matches punctuation between matched words, one for one", () => {
@@ -66,6 +70,8 @@ test("matchMarks matches punctuation between matched words, one for one", () => 
   // Not when the gaps differ in length, or the marks differ.
   assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "+", "-", "y"], [0, -1, 3]), [0, -1, 3]);
   assert.deepEqual(matchMarks(["x", "+", "y"], ["x", "-", "y"], [0, -1, 2]), [0, -1, 2]);
+  // Nor a page token another word already has.
+  assert.deepEqual(matchMarks(["x", "+", "y", "+"], ["x", "+", "y"], [0, -1, 2, 1]), [0, -1, 2, 1]);
 });
 
 test("align tolerates OCR errors in longer words", () => {

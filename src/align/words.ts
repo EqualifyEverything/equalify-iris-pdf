@@ -19,6 +19,9 @@ export function normalize(word: string): string {
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
+    .replace(/[‘’ʼ]/gu, "'") // typographic quotes and dashes match plain ones
+    .replace(/[“”]/gu, '"')
+    .replace(/[‐‑‒–—]/gu, "-")
     .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 }
 

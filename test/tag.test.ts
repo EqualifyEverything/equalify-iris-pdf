@@ -606,6 +606,12 @@ test("a word OCR misread is tagged where it is, read as the HTML's word", () => 
   }
 });
 
+test("a typographic apostrophe matches the HTML's plain one in place", () => {
+  const { root, report } = tagContent("BT /F1 12 Tf 20 200 Td (Verkamp\\222s store) Tj ET", "<p>Verkamp's store</p>");
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.equal(readingOrder(root), "Verkamp's store");
+});
+
 test("lines padded with spaces, one show each, are tagged where they are", () => {
   // As cupsfilter writes plain text: each line one Tj, padded out to the margin.
   const pad = " ".repeat(60);
