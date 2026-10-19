@@ -563,8 +563,9 @@ test("primes drawn smaller stay with their letter", () => {
   const font = src.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", ToUnicode: src.addStream(cmap, {}) });
   src.insertPage(-1, src.addPage([0, 0, 612, 792], 0, src.addObject({ Font: { F1: font } }), "BT /F1 24 Tf 72 700 Td (The D+D) Tj /F1 14 Tf ('') Tj /F1 24 Tf ( peak) Tj ET"));
   const report = newReport();
-  tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>The D + D″ peak</p>" }] }, {}, report);
+  const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>The D + D″ peak</p>" }] }, {}, report));
   assert.equal(report.pages[0].redrawn, 0);
+  assert.equal(find(structTree(doc), "P")[0].text, "The D+D\u2032\u2032 peak", "the primes are the P's, as the page draws them");
 });
 
 test("words sharing a page word split its box across, by length", () => {
