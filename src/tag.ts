@@ -2,7 +2,8 @@
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
 import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
+import { addBody, drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
+import { inlinePage } from "./pdf/forms.ts";
 import { artifactStreams, keyedBody, keyedChars, parseText, type Mark, type PageText } from "./pdf/shows.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
@@ -185,6 +186,7 @@ type PageCtx = {
   inPlace: boolean;
 };
 
+const PIXEL_DPI = 150; // verify() renders at this, and so does inlinePage
 const MAX_TRACED = 4 << 20; // bytes of page content; tracing writes some 50 per code
 // The page's own text, parsed so its codes can be marked where they are, and
 // read code by code. Null if it has none, or its content cannot be read, is
@@ -197,6 +199,7 @@ function sourceText(doc: mupdf.PDFDocument, page: mupdf.PDFPage) {
     return null;
   }
   if (body.length > MAX_TRACED || (body.includes("(") && withoutStrings(body) === body)) return null;
+  body = inlinePage(doc, page, body, PIXEL_DPI, MAX_TRACED);
   const text = parseText(page.getObject(), body);
   if (!text.shows.size || text.codes.length >= 0xffffff) return null; // a key is 24 bits
   const keyed = keyedChars(doc, page, (mask) => keyedBody(text, (_op, id) => id, mask));
@@ -722,7 +725,7 @@ function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: Ta
     return d;
   };
   const after = open(out);
-  const pixels = comparePixels(open(pdf), after, 150, changed);
+  const pixels = comparePixels(open(pdf), after, PIXEL_DPI, changed);
   const text = compareText(open(baseline), after, added);
   report.verification = {
     pixels: pixels.length ? "failed" : "identical-outside-fields",
