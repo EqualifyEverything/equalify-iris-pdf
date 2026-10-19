@@ -551,8 +551,9 @@ test("a spacing macron in the HTML matches the page's combining one", () => {
   src.insertPage(-1, src.addPage([0, 0, 612, 792], 0, src.addObject({ Font: { F1: font } }), "BT /F1 24 Tf 72 700 Td [(So x-) 333 (\\)\\(y is it)] TJ ET"));
   const report = newReport();
   const html = "<p>So <math><mover><mi>x</mi><mo>&#xAF;</mo></mover><mo>)</mo><mo>(</mo><mi>y</mi></math> is it</p>";
-  tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html }] }, {}, report);
+  const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html }] }, {}, report));
   assert.equal(report.pages[0].redrawn, 0);
+  assert.equal(find(structTree(doc), "Formula")[0].text, "\u{1D465}\u0304)(\u{1D466}", "x̄ is the Formula's, as the page draws it");
 });
 
 test("words sharing a page word split its box across, by length", () => {

@@ -460,8 +460,8 @@ const marksOf = (s: string) => s.normalize("NFKC").replace(/\p{L}/gu, ""); // di
 // beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each
 // one's characters [from, to) of it, or null. text(j): HTML word j's text,
 // null if it is matched elsewhere. Characters compare as NFKC less spaces
-// (so "¯" is the page's combining macron); what no word
-// claims must be punctuation, and stays an artifact.
+// (so "¯" is the page's combining macron); what no word claims must be
+// punctuation, and stays an artifact.
 function spread(drawn: string[], text: (j: number) => string | null, lo: number, hi: number): [number, number, number][] | null {
   const nf = (c: string) => c.normalize("NFKC").replace(/\s/gu, ""), punct = (c: string) => !/[\p{L}\p{N}]/u.test(c);
   const eat = (p: number, w: string) => {
