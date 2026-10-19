@@ -87,3 +87,14 @@ test("forms that would inline too large, or nest too deep, are left whole", () =
   page.put("Resources", { XObject: { X: deep } });
   assert.equal(inlineForms(doc, page, "/X Do"), "/X Do");
 });
+
+test("a form drawn many times adds each of its resources to the page once", () => {
+  const doc = new mupdf.PDFDocument(), font = doc.addSimpleFont(new mupdf.Font("Helvetica"));
+  const x = doc.addStream("/G gs BT /F1 12 Tf 0 0 Td (Hi) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 300, 300], Resources: { Font: { F1: font }, ExtGState: { G: { ca: 1 } } } });
+  const page = doc.addObject({ Type: "Page", Resources: { XObject: { X: x } } });
+  const out = inlineForms(doc, page, "/X Do ".repeat(8000), 4 << 20);
+  assert.doesNotMatch(out, /X Do/);
+  const keys: string[] = [];
+  page.get("Resources").get("ExtGState").forEach((_, k) => { keys.push(String(k)); });
+  assert.deepEqual(keys, ["G"]);
+});

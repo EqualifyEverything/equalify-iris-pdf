@@ -43,6 +43,13 @@ export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body:
     if (!copied.has(cat)) (copied.add(cat), res.put(cat, copy(doc, res.get(cat))));
     return res.get(cat);
   };
+  // The page's name for each form's resource, chosen once however often the form is drawn.
+  const names = new Map<string, string>();
+  const named: Named = (form, cat, name, obj) => {
+    const key = `${form.asIndirect()} ${cat} ${name}`;
+    if (!names.has(key)) names.set(key, rename(own(cat), name, obj));
+    return names.get(key)!;
+  };
   for (let round = 0; round < ROUNDS; round++) {
     const pres = page.getInheritable("Resources"), xo = pres.get("XObject");
     let out = "", from = 0, inBT = false;
@@ -50,7 +57,7 @@ export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body:
       if (o.op === "BT") inBT = true;
       else if (o.op === "ET") inBT = false;
       if (o.op !== "Do" || inBT || !xo.isDictionary()) continue;
-      const drawn = inlined(xo.get(o.args[0]?.slice(1) ?? ""), pres, own, text, max);
+      const drawn = inlined(xo.get(o.args[0]?.slice(1) ?? ""), pres, named, text, max);
       if (drawn === null) continue;
       out += body.slice(from, o.start) + drawn;
       from = o.end;
@@ -66,7 +73,9 @@ export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body:
 // text, uses a pattern (its space would change), an inline image or marked
 // content, is unbalanced, or is a transparency group that would not composite
 // the same drawn straight onto the page.
-function inlined(form: mupdf.PDFObject, pres: mupdf.PDFObject, own: (cat: string) => mupdf.PDFObject, text: Map<number, boolean>, max: number): string | null {
+type Named = (form: mupdf.PDFObject, cat: string, name: string, obj: mupdf.PDFObject) => string;
+
+function inlined(form: mupdf.PDFObject, pres: mupdf.PDFObject, named: Named, text: Map<number, boolean>, max: number): string | null {
   if (form.get("Subtype").asName() !== "Form" || !form.isStream() || !drawsText(form, text)) return null;
   const group = form.get("Group");
   if (!group.isNull() && (group.get("K").asBoolean() || !normalBlend(form.get("Resources"), new Set()) || !opaque(pres))) return null;
@@ -81,14 +90,14 @@ function inlined(form: mupdf.PDFObject, pres: mupdf.PDFObject, own: (cat: string
     if (!cat || !fres.isDictionary() || !name?.startsWith("/") || (cat === "ColorSpace" && DEVICE.has(name))) continue;
     const obj = fres.get(cat).get(name.slice(1));
     if (obj.isNull()) continue; // the form uses the page's resource of that name
-    out += s.slice(from, o.start) + [`/${rename(own(cat), name.slice(1), obj)}`, ...o.args.slice(1), o.op].join(" ");
+    out += s.slice(from, o.start) + [`/${named(form, cat, name.slice(1), obj)}`, ...o.args.slice(1), o.op].join(" ");
     from = o.end;
   }
   const n = (a: mupdf.PDFObject, i: number) => a.get(i).asNumber();
   const [x0, y0, x1, y1] = [0, 1, 2, 3].map((i) => n(box, i));
   const cm = m.isArray() && m.length === 6 ? [0, 1, 2, 3, 4, 5].map((i) => n(m, i)).join(" ") : "1 0 0 1 0 0";
   const drawn = `\nq ${cm} cm ${x0} ${y0} ${x1 - x0} ${y1 - y0} re W n\n${out + s.slice(from)}\nQ\n`;
-  return oc.isNull() ? drawn : `\n/OC /${rename(own("Properties"), "OC", oc)} BDC${drawn}EMC\n`;
+  return oc.isNull() ? drawn : `\n/OC /${named(form, "Properties", "OC", oc)} BDC${drawn}EMC\n`;
 }
 
 const content = (form: mupdf.PDFObject): string | null => {
