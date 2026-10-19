@@ -267,8 +267,8 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
       // The page's own quote or dash is kept: where they differ, the HTML is as likely wrong.
       if (ks.length === 1 && sameText(drawn.join(""), w.text)) codes.set(w, unique(all));
       else if (split) for (const [j, from, to] of split) codes.set(ordered[j].word, unique(all.slice(from, to)));
-      else if (ks.length === 1 && (tokens[t].norm === w.norm || marksOf(drawn.join("")) === marksOf(w.text))) {
-        // Spelled with other marks, such as a line-end hyphen, or misread by OCR: read as the HTML's word.
+      else if (ks.length === 1 && (core(tokens[t].norm) === core(w.norm) || marksOf(drawn.join("")) === marksOf(w.text))) {
+        // Spelled with other marks, such as a hyphen ("semi-conductors"), or misread by OCR: read as the HTML's word.
         codes.set(w, unique(all));
         actual.set(w, w.text);
       } // else the page draws more than this word: it stays an artifact, and the word goes in the overlay.
@@ -455,6 +455,7 @@ const tiles = (a: Box, b: Box) =>
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const unique = (xs: number[]) => [...new Set(xs)];
 const sameText = (a: string, b: string) => fold(a.normalize("NFKC")) === fold(b.normalize("NFKC"));
+const core = (norm: string) => norm.replace(/[^\p{L}\p{N}]/gu, "");
 const marksOf = (s: string) => s.normalize("NFKC").replace(/\p{L}/gu, ""); // digits count: "website.1" is not "website."
 // A page word drawn as HTML words lo..hi, and the unmatched HTML words
 // beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each

@@ -598,6 +598,10 @@ test("a word hyphenated across lines is one element part, read as the HTML's wor
   assert.equal(span.dict.get("ActualText").asString(), "example");
   assert.equal(readingOrder(root), "An example today.");
   assert.equal(report.pages[0].redrawn, 0);
+  // So is one the HTML spells without its hyphen.
+  const r = tagContent("BT /F1 12 Tf 20 200 Td (In semi-conductors it) Tj ET", "<p>In semiconductors it</p>");
+  assert.equal(find(r.root, "Span")[0].dict.get("ActualText").asString(), "semiconductors");
+  assert.equal(r.report.pages[0].redrawn, 0);
 });
 
 test("a page tagged in place with no overlay gets its own drawing back on a retag", () => {
