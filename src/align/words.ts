@@ -13,16 +13,12 @@ export type PageWord = { text: string; box: Box; baseline: number; size: number;
 const CJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/u;
 export const isCJK = (c: string) => CJK.test(c);
 
-// Lower-case, accents stripped, punctuation trimmed from the ends.
+// Typographic quotes and dashes as plain ones.
+export const fold = (s: string) => s.replace(/[‘’ʼ]/gu, "'").replace(/[“”]/gu, '"').replace(/[‐‑‒–—]/gu, "-");
+
+// Lower-case, accents stripped, quotes and dashes folded, punctuation trimmed from the ends.
 export function normalize(word: string): string {
-  return word
-    .normalize("NFKD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[‘’ʼ]/gu, "'") // typographic quotes and dashes match plain ones
-    .replace(/[“”]/gu, '"')
-    .replace(/[‐‑‒–—]/gu, "-")
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  return fold(word.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase()).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
 }
 
 // Split text into words: on whitespace, and between CJK characters.

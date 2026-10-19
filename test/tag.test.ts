@@ -612,6 +612,13 @@ test("a typographic apostrophe matches the HTML's plain one in place", () => {
   assert.equal(readingOrder(root), "Verkamp's store");
 });
 
+test("a dash the HTML writes differently is the page's own, read as the HTML's", () => {
+  const { root, report, after } = tagContent("BT /F1 12 Tf 20 200 Td (Library Hours \\227 Fall Term) Tj ET", "<p>Library Hours – Fall Term</p>");
+  assert.equal(readingOrder(root), "Library Hours – Fall Term");
+  assert.equal(after.trim(), "Library Hours – Fall Term", "one dash, not two"); // mupdf reads the ActualText
+  assert.equal(report.pages[0].redrawn, 0);
+});
+
 test("lines padded with spaces, one show each, are tagged where they are", () => {
   // As cupsfilter writes plain text: each line one Tj, padded out to the margin.
   const pad = " ".repeat(60);

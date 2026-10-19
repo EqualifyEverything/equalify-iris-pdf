@@ -5,6 +5,7 @@
 // page (a local alignment), claim it, then repeat for the HTML words left over
 // on either side. Each pass is O(n·m); a budget caps the total work, so a
 // page whose orders disagree badly cannot run for minutes.
+import { fold } from "./words.ts";
 
 const MATCH = 3, FUZZY = 1, MISMATCH = -3, GAP = -1;
 export const MAX_WORDS = 4000;
@@ -77,9 +78,9 @@ export function matchRuns(html: string[], page: string[], match: number[]): numb
 
 // Alignment skips words with no letters or digits, such as a formula's "+".
 // Between two matched words with as many page tokens as HTML words in the
-// gap, each pair that reads the same (as NFKC) matches.
+// gap, each pair that reads the same (as NFKC, quotes and dashes folded) matches.
 export function matchMarks(html: string[], page: string[], match: number[]): number[] {
-  const out = [...match], nf = (s: string) => s.normalize("NFKC"), claimed = new Set(match);
+  const out = [...match], nf = (s: string) => fold(s.normalize("NFKC")), claimed = new Set(match);
   let k0 = -1;
   for (let k = 0; k < out.length; k++) {
     if (out[k] < 0) continue;
