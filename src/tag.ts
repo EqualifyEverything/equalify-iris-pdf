@@ -455,7 +455,7 @@ const tiles = (a: Box, b: Box) =>
 const asP = (r: Run): Node => ({ type: "P", kids: [r] });
 const unique = (xs: number[]) => [...new Set(xs)];
 const sameText = (a: string, b: string) => fold(a.normalize("NFKC")) === fold(b.normalize("NFKC"));
-const core = (norm: string) => norm.replace(/[^\p{L}\p{N}]/gu, "");
+const core = (norm: string) => norm.replace(/['-]/gu, ""); // normalize folded the others to these; "3.5" is not "35"
 const marksOf = (s: string) => s.normalize("NFKC").replace(/\p{L}/gu, ""); // digits count: "website.1" is not "website."
 // A page word drawn as HTML words lo..hi, and the unmatched HTML words
 // beside them ("website.1" for "website", ".", "1"; "2𝑥" for "2", "x"): each
