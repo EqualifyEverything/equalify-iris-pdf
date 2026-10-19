@@ -71,3 +71,19 @@ test("a form that might draw differently in the page is left whole", () => {
   assert.equal(report.pages[0].redrawn, 2);
   assert.ok(!report.warnings.some((w) => w.code === "in_place_failed"));
 });
+
+test("forms that would inline too large, or nest too deep, are left whole", () => {
+  // Each level draws the next 30 times: inlined four levels deep that is 30^4 copies.
+  const doc = new mupdf.PDFDocument(), font = doc.addSimpleFont(new mupdf.Font("Helvetica"));
+  const form = (body: string, xo: Record<string, unknown> = {}) =>
+    doc.addStream(body, { Type: "XObject", Subtype: "Form", BBox: [0, 0, 300, 300], Resources: { Font: { F1: font }, XObject: xo } });
+  let x = form("BT /F1 12 Tf 0 0 Td (Hello) Tj ET");
+  for (let i = 0; i < 4; i++) x = form("/X Do ".repeat(30), { X: x });
+  const page = doc.addObject({ Type: "Page", Resources: { XObject: { X: x } } }), body = "/X Do ".repeat(30);
+  assert.equal(inlineForms(doc, page, body, 1_000_000), body);
+  // A chain of forms deeper than the stack, text only at the end.
+  let deep = form("BT /F1 12 Tf 0 0 Td (Hello) Tj ET");
+  for (let i = 0; i < 20000; i++) deep = form("/X Do", { X: deep });
+  page.put("Resources", { XObject: { X: deep } });
+  assert.equal(inlineForms(doc, page, "/X Do"), "/X Do");
+});

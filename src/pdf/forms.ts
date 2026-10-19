@@ -8,18 +8,20 @@ const DEVICE = new Set(["/DeviceGray", "/DeviceRGB", "/DeviceCMYK", "/Pattern"])
 // The resource category named by each operator's first operand.
 const NAMES: Record<string, string> = { Tf: "Font", Do: "XObject", gs: "ExtGState", cs: "ColorSpace", CS: "ColorSpace", sh: "Shading" };
 const ROUNDS = 4; // forms inside forms
+const DEPTH = 8; // how deep drawsText and normalBlend look
 
 // The page's forms inlined into its content (inlineForms) if the page then
 // renders to the same pixels at dpi, and the body it now has.
 export function inlinePage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, body: string, dpi: number, max: number): string {
   const obj = page.getObject(), contents = obj.get("Contents"), res = obj.get("Resources");
-  const inlined = inlineForms(doc, obj, body);
-  if (inlined === body) return body;
-  const m = mupdf.Matrix.scale(dpi / 72, dpi / 72), pixels = () => page.toPixmap(m, mupdf.ColorSpace.DeviceRGB, false, true).getPixels();
-  const before = pixels();
-  obj.put("Contents", addBody(doc, inlined));
-  if (inlined.length <= max && Buffer.from(pixels()).equals(Buffer.from(before))) return inlined;
-  obj.put("Contents", contents);
+  const inlined = inlineForms(doc, obj, body, max);
+  if (inlined !== body) {
+    const m = mupdf.Matrix.scale(dpi / 72, dpi / 72), pixels = () => page.toPixmap(m, mupdf.ColorSpace.DeviceRGB, false, true).getPixels();
+    const before = pixels();
+    obj.put("Contents", addBody(doc, inlined));
+    if (Buffer.from(pixels()).equals(Buffer.from(before))) return inlined;
+    obj.put("Contents", contents);
+  }
   if (res.isNull()) obj.delete("Resources");
   else obj.put("Resources", res);
   return body;
@@ -28,8 +30,10 @@ export function inlinePage(doc: mupdf.PDFDocument, page: mupdf.PDFPage, body: st
 // The page body with each form that draws text drawn in place:
 // q Matrix cm BBox clip, its content, Q; inside /OC ... BDC EMC if the form
 // has optional content. A form is left alone if inlining could change what is
-// drawn or tagged (see inlined). Returns the body unchanged if none is inlined.
-export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body: string): string {
+// drawn or tagged (see inlined). Returns the body unchanged if none is
+// inlined, or if inlining would make it longer than max.
+export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body: string, max = Infinity): string {
+  const original = body, text = new Map<number, boolean>();
   // The page's own copy of its resources and of each category written to, made on first use.
   let res: mupdf.PDFObject | null = null;
   const copied = new Set<string>();
@@ -46,10 +50,11 @@ export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body:
       if (o.op === "BT") inBT = true;
       else if (o.op === "ET") inBT = false;
       if (o.op !== "Do" || inBT || !xo.isDictionary()) continue;
-      const drawn = inlined(xo.get(o.args[0]?.slice(1) ?? ""), pres, own);
+      const drawn = inlined(xo.get(o.args[0]?.slice(1) ?? ""), pres, own, text, max);
       if (drawn === null) continue;
       out += body.slice(from, o.start) + drawn;
       from = o.end;
+      if (out.length + body.length - from > max) return original;
     }
     if (!from) break;
     body = out + body.slice(from);
@@ -61,14 +66,14 @@ export function inlineForms(doc: mupdf.PDFDocument, page: mupdf.PDFObject, body:
 // text, uses a pattern (its space would change), an inline image or marked
 // content, is unbalanced, or is a transparency group that would not composite
 // the same drawn straight onto the page.
-function inlined(form: mupdf.PDFObject, pres: mupdf.PDFObject, own: (cat: string) => mupdf.PDFObject): string | null {
-  if (form.get("Subtype").asName() !== "Form" || !form.isStream() || !drawsText(form, new Set())) return null;
+function inlined(form: mupdf.PDFObject, pres: mupdf.PDFObject, own: (cat: string) => mupdf.PDFObject, text: Map<number, boolean>, max: number): string | null {
+  if (form.get("Subtype").asName() !== "Form" || !form.isStream() || !drawsText(form, text)) return null;
   const group = form.get("Group");
   if (!group.isNull() && (group.get("K").asBoolean() || !normalBlend(form.get("Resources"), new Set()) || !opaque(pres))) return null;
   const box = form.get("BBox"), m = form.get("Matrix"), oc = form.get("OC");
   if (!box.isArray() || box.length !== 4) return null;
   const s = content(form), ops = s === null ? [] : operators(s);
-  if (s === null || !safe(ops)) return null;
+  if (s === null || s.length > max || !safe(ops)) return null;
   const fres = form.get("Resources");
   let out = "", from = 0;
   for (const o of ops) {
@@ -106,8 +111,16 @@ function forms(res: mupdf.PDFObject, seen: Set<number>): mupdf.PDFObject[] {
   return out;
 }
 
-const drawsText = (form: mupdf.PDFObject, seen: Set<number>): boolean =>
-  /\bBT\b/.test(content(form) ?? "") || forms(form.get("Resources"), seen).some((f) => drawsText(f, seen));
+// Whether a form draws text, itself or in the forms it draws, remembered by
+// object. Forms nested deeper than DEPTH count as drawing none.
+function drawsText(form: mupdf.PDFObject, text: Map<number, boolean>, depth = 0): boolean {
+  const id = form.isIndirect() ? form.asIndirect() : 0;
+  if (id && text.has(id)) return text.get(id)!;
+  if (id) text.set(id, false); // a cycle
+  const yes = depth < DEPTH && (/\bBT\b/.test(content(form) ?? "") || forms(form.get("Resources"), new Set()).some((f) => drawsText(f, text, depth + 1)));
+  if (id) text.set(id, yes);
+  return yes;
+}
 
 const states = (res: mupdf.PDFObject) => {
   const out: mupdf.PDFObject[] = [], gs = res.isDictionary() ? res.get("ExtGState") : res;
@@ -116,9 +129,9 @@ const states = (res: mupdf.PDFObject) => {
 };
 const normal = (g: mupdf.PDFObject) => g.get("BM").isNull() || ["Normal", "Compatible"].includes(g.get("BM").asName());
 
-// No blend mode but Normal, here or in the forms it draws.
-const normalBlend = (res: mupdf.PDFObject, seen: Set<number>): boolean =>
-  states(res).every(normal) && forms(res, seen).every((f) => normalBlend(f.get("Resources"), seen));
+// No blend mode but Normal, here or in the forms it draws (to DEPTH).
+const normalBlend = (res: mupdf.PDFObject, seen: Set<number>, depth = 0): boolean =>
+  depth < DEPTH && states(res).every(normal) && forms(res, seen).every((f) => normalBlend(f.get("Resources"), seen, depth + 1));
 
 // The page sets no alpha, soft mask or blend mode that a group takes as a whole.
 const one = (x: mupdf.PDFObject) => x.isNull() || x.asNumber() === 1;

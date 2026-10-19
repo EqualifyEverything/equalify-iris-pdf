@@ -2,7 +2,7 @@
 // form values filled in, checked to render identically (spec §7).
 import * as mupdf from "mupdf";
 import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/document.ts";
-import { addBody, drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
+import { drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
 import { inlinePage } from "./pdf/forms.ts";
 import { artifactStreams, keyedBody, keyedChars, parseText, type Mark, type PageText } from "./pdf/shows.ts";
 import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
