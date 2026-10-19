@@ -32,7 +32,8 @@ export function textLayerWords(page: mupdf.PDFPage, keyed?: KeyedChar[]): PageWo
       const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
       const box: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
       const alone = isCJK(c); // a word by itself, as in splitWords
-      if (alone || (cur && Math.abs(cur.size - size) > 0.5)) flush();
+      // A change of size starts a word ("Note¹"), but a prime keeps to its letter (D′′).
+      if (alone || (cur && Math.abs(cur.size - size) > 0.5 && !/[′″‴⁗]/u.test(c))) flush();
       if (!cur) cur = { text: "", box, baseline: origin[1], size, codes: [] };
       cur.text += c;
       if (cur.codes && k?.key) cur.codes.push(k.key);

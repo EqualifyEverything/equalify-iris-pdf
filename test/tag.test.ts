@@ -556,6 +556,18 @@ test("a spacing macron in the HTML matches the page's combining one", () => {
   assert.equal(find(structTree(doc), "Formula")[0].text, "\u{1D465}\u0304)(\u{1D466}", "x̄ is the Formula's, as the page draws it");
 });
 
+test("primes drawn smaller stay with their letter", () => {
+  // The page draws D″ as D and two smaller U+2032; Iris writes U+2033, which NFKC makes two U+2032.
+  const src = new mupdf.PDFDocument();
+  const cmap = "begincmap\n1 begincodespacerange <00> <FF> endcodespacerange\n1 beginbfchar <27> <2032> endbfchar\nendcmap";
+  const font = src.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica", ToUnicode: src.addStream(cmap, {}) });
+  src.insertPage(-1, src.addPage([0, 0, 612, 792], 0, src.addObject({ Font: { F1: font } }), "BT /F1 24 Tf 72 700 Td (The D+D) Tj /F1 14 Tf ('') Tj /F1 24 Tf ( peak) Tj ET"));
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), { lang: "en", pages: [{ sourcePage: 1, html: "<p>The D + D″ peak</p>" }] }, {}, report));
+  assert.equal(report.pages[0].redrawn, 0);
+  assert.equal(find(structTree(doc), "P")[0].text, "The D+D\u2032\u2032 peak", "the primes are the P's, as the page draws them");
+});
+
 test("words sharing a page word split its box across, by length", () => {
   const p = { box: [10, 0, 40, 10] as [number, number, number, number], baseline: 8, size: 10 };
   assert.deepEqual([0, 1].map((k) => share(p, [1, 2], k).box), [[10, 0, 20, 10], [20, 0, 40, 10]]);
