@@ -8,6 +8,7 @@ export type FieldType = "text" | "checkbox" | "radio" | "combobox" | "listbox" |
 
 export type Field = {
   name: string;
+  label: string | null; // /TU, the name a person reads
   type: FieldType;
   page: number; // 1-based, the page of its first widget
   rect: Box; // the first widget, in PDF user space
@@ -59,7 +60,7 @@ function typeOf(w: mupdf.PDFWidget): FieldType {
 
 export function inventory(doc: mupdf.PDFDocument): Field[] {
   const fields = new Map<string, Field>();
-  for (const { name, page, widget } of allWidgets(doc)) {
+  for (const { name, page, widget, field } of allWidgets(doc)) {
     const type = typeOf(widget);
     const flags = widget.getFieldFlags();
     const f = fields.get(name);
@@ -70,8 +71,9 @@ export function inventory(doc: mupdf.PDFDocument): Field[] {
     }
     const r = widget.getObject().get("Rect");
     const rect = [0, 1, 2, 3].map((k) => r.get(k).asNumber()) as Box;
+    const tu = field.get("TU");
     fields.set(name, {
-      name, type, page: page + 1,
+      name, label: (tu.isString() && tu.asString().trim()) || null, type, page: page + 1,
       rect: [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])],
       options: type === "checkbox" || type === "radio" ? onStates(widget) : widget.isChoice() ? widget.getOptions() : [],
       required: (flags & mupdf.PDFWidget.FIELD_IS_REQUIRED) !== 0,
