@@ -44,9 +44,14 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, restored: false, warnings };
   if (opts.readOnly) return source;
 
-  // An owner password can forbid changes. We do not work around it.
+  // An owner password can forbid changes. With no open password, and extraction
+  // for accessibility allowed, an accessible copy is still made; the output keeps
+  // the owner's encryption and permissions.
   if (!doc.hasPermission("edit")) {
-    throw new IrisPdfError("permissions_denied", "The PDF's owner does not permit changes to it.");
+    if (encrypted || !doc.hasPermission("accessibility")) {
+      throw new IrisPdfError("permissions_denied", "The PDF's owner does not permit changes to it, or extraction for accessibility.");
+    }
+    warnings.push({ code: "owner_restricted", detail: "The PDF's owner forbids changes; it was tagged because its permissions allow extraction for accessibility. The output keeps those permissions." });
   }
   // A damaged file cannot be updated in place. It is rewritten from what mupdf
   // repaired, which is also what the checks render as the original.
