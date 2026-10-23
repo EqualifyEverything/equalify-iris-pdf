@@ -79,7 +79,11 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   // with no fields gets them from its HTML, page by page, and is filled after.
   let fields = inventory(doc);
   const values = opts.values ?? {};
-  const maker = !fields.length && !opts.flatten ? new FieldMaker(doc) : undefined;
+  // Under an owner's restrictions only tagging is allowed, and filling if the owner permits it.
+  if (src.restricted && (opts.flatten || (Object.keys(values).length && !doc.hasPermission("form")))) {
+    throw new IrisPdfError("permissions_denied", `The PDF's owner does not permit ${opts.flatten ? "flattening its form" : "filling in its form"}.`);
+  }
+  const maker = !fields.length && !opts.flatten && !src.restricted ? new FieldMaker(doc) : undefined;
   let filled = { set: 0, skippedReadOnly: 0, changed: new Map<number, Box[]>() };
   if (!maker) {
     checkValues(fields, values).forEach(warn);
