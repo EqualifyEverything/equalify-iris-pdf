@@ -46,6 +46,18 @@ test("fields lists every terminal field with its type and options", () => {
   assert.equal(fields(readFixture("restricted.pdf")).length, 0); // read-only use needs no edit permission
 });
 
+test("fields gives each field's /TU as its label, else null", () => {
+  const doc = new mupdf.PDFDocument(pdf);
+  const [name, state] = [...widgets(doc)].filter(([n]) => n === "applicant.name" || n === "state").map(([, w]) => w[0].getObject());
+  name.put("TU", doc.newString("Applicant \u2019s name"));
+  state.put("TU", doc.newString(" "));
+  const radio = widgets(doc).get("contact")![0].getObject();
+  assert.ok(radio.get("T").isNull()); // a kid widget: its label is on the parent field
+  radio.get("Parent").put("TU", doc.newString("Contact by"));
+  const byName = Object.fromEntries(fields(doc.saveToBuffer("").asUint8Array().slice()).map((f) => [f.name, f.label]));
+  assert.deepEqual([byName["applicant.name"], byName.state, byName.contact, byName.office], ["Applicant \u2019s name", null, "Contact by", null]);
+});
+
 test("fills text, checkbox, radio and choice fields", () => {
   const report = newReport();
   const out = tag(pdf, pages, { values: { "applicant.name": "Ada Lovelace", "applicant.consent": true, contact: "phone", state: "WI", office: "Loop" } }, report);
