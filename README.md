@@ -94,7 +94,7 @@ The output declares PDF/UA-1 only when it has a title, every page is tagged, eve
 | Exit | When |
 |---|---|
 | 0 | Done. |
-| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied` (the owner forbids changes, and the PDF has an open password or forbids extraction for accessibility too), `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`. From `review`: `review_failed` (the model or its API failed on a page). |
+| 1 | Refused: `encrypted` (no or wrong password), `permissions_denied` (the owner forbids changes, and the PDF has an open password or forbids extraction for accessibility too), `values_not_permitted` and `flatten_not_permitted` (the owner's restrictions allow tagging but not filling in or flattening the form: tag without `--values` or `--flatten`), `too_many_pages` (over 25), `too_many_words` (over 4000 on a page), `xfa` (dynamic form), `signed`, `no_acroform_field`. From `review`: `review_failed` (the model or its API failed on a page). |
 | 2 | A check failed: `pixels_changed`, `text_lost`. |
 | 3 | Bad input: `unreadable`, `bad_pages`, `no_document_language`, `bad_value`, `field_not_settable`, `bad_arguments`. From `review`: `not_tagged`, `no_readable_structure` (not tagged by this tool), `bad_structure` (nested over 64 levels), `no_credentials`. |
 

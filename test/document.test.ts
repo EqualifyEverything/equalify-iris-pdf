@@ -65,8 +65,8 @@ test("tags an owner-restricted PDF that allows extraction for accessibility, kee
 
 test("under an owner's restrictions a form is filled only if allowed, never flattened, and gets no new fields", () => {
   const form = pagesOf("form-acroform"), values = { "applicant.name": "Ada" };
-  assert.equal(refusal(restrict(-1321, "form-acroform"), { values }, form).code, "permissions_denied"); // filling forbidden
-  assert.equal(refusal(restrict(-1065, "form-acroform"), { flatten: true }, form).code, "permissions_denied");
+  assert.equal(refusal(restrict(-1321, "form-acroform"), { values }, form).code, "values_not_permitted");
+  assert.equal(refusal(restrict(-1065, "form-acroform"), { flatten: true }, form).code, "flatten_not_permitted");
   const filled = new mupdf.PDFDocument(tag(restrict(-1065, "form-acroform"), form, { values })); // filling allowed
   assert.equal(filled.loadPage(0).getWidgets().find((w) => w.getName() === "applicant.name")!.getValue(), "Ada");
   const report = newReport();
