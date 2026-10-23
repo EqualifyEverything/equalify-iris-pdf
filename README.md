@@ -49,7 +49,7 @@ Iris's HTML, one entry per source page:
 
 ### values.json
 
-Field name to value. Names are the ones `iris-pdf fields` prints; with `--json`, each field's `label` is its tooltip (`/TU`), or `null`.
+Field name to value. Names are the ones `iris-pdf fields` prints; with `--json`, each field's `label` is its tooltip (`/TU`, trimmed), or `null`.
 
 ```json
 { "applicant.name": "Ada Lovelace", "applicant.consent": true, "contact": "phone", "state": "WI" }
