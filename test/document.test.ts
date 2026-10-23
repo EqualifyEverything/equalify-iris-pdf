@@ -23,12 +23,16 @@ function blankPdf(pages: number, edit?: (doc: mupdf.PDFDocument) => void): Uint8
   return doc.saveToBuffer("").asUint8Array().slice();
 }
 
+// text-simple, with an owner password and these permissions.
+const restrict = (permissions: number, name = "text-simple") =>
+  new mupdf.PDFDocument(readFixture(`${name}.pdf`)).saveToBuffer(`encrypt=aes-256,owner-password=owner,permissions=${permissions}`).asUint8Array().slice();
+
 test("refuses what it cannot safely change, each with its own code", () => {
   const cases: [string, Uint8Array, TagOptions, string, number][] = [
     ["not a PDF", new TextEncoder().encode("hello"), {}, "unreadable", 3],
     ["no password", readFixture("encrypted.pdf"), {}, "encrypted", 1],
     ["wrong password", readFixture("encrypted.pdf"), { password: "nope" }, "encrypted", 1],
-    ["owner forbids edits", readFixture("restricted.pdf"), {}, "permissions_denied", 1],
+    ["owner forbids edits and accessibility", restrict(-1833), {}, "permissions_denied", 1],
     ["signed", readFixture("signed.pdf"), {}, "signed", 1],
     ["26 pages", blankPdf(26), {}, "too_many_pages", 1],
     ["value for a field the form lacks", readFixture("form-flat.pdf"), { values: { name: "Ada" } }, "no_acroform_field", 1],
@@ -48,6 +52,27 @@ test("opens an encrypted PDF with its password", () => {
   const back = new mupdf.PDFDocument(out);
   assert.ok(back.needsPassword() && back.authenticatePassword("open"));
   assert.equal(back.countPages(), doc.countPages());
+});
+
+test("tags an owner-restricted PDF that allows extraction for accessibility, keeping its permissions", () => {
+  const report = newReport();
+  const back = new mupdf.PDFDocument(tag(readFixture("restricted.pdf"), simple, {}, report));
+  assert.ok(report.warnings.some((w) => w.code === "owner_restricted"));
+  assert.equal(report.verification.differingPixels, 0);
+  assert.ok(!back.needsPassword() && !back.hasPermission("edit") && back.hasPermission("accessibility"));
+  assert.ok(!back.getTrailer().get("Root", "StructTreeRoot").isNull());
+});
+
+test("under an owner's restrictions a form is filled only if allowed, never flattened, and gets no new fields", () => {
+  const form = pagesOf("form-acroform"), values = { "applicant.name": "Ada" };
+  assert.equal(refusal(restrict(-1321, "form-acroform"), { values }, form).code, "values_not_permitted");
+  tag(restrict(-1321, "form-acroform"), form, { values: {} }); // no values is not filling
+  assert.equal(refusal(restrict(-1065, "form-acroform"), { flatten: true }, form).code, "flatten_not_permitted");
+  const filled = new mupdf.PDFDocument(tag(restrict(-1065, "form-acroform"), form, { values })); // filling allowed
+  assert.equal(filled.loadPage(0).getWidgets().find((w) => w.getName() === "applicant.name")!.getValue(), "Ada");
+  const report = newReport();
+  tag(restrict(-1065, "form-flat"), pagesOf("form-flat"), {}, report);
+  assert.deepEqual(report.form.created, []);
 });
 
 test("a damaged PDF is rewritten from its repair, checked, and keeps its encryption", () => {

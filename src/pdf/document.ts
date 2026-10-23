@@ -13,6 +13,7 @@ export type Source = {
   xfa: boolean;
   repaired: boolean; // damaged: saved as a full rewrite, not an update
   restored: boolean; // the PDF was our own output: pages got their original content back
+  restricted: boolean; // owner forbids changes; tagged under the accessibility allowance
   warnings: Warning[];
 };
 
@@ -41,12 +42,18 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
     if (inherited(field, "FT")?.asName() === "Sig" && inherited(field, "V")) signed = true;
   });
   const repaired = doc.wasRepaired() || !doc.canBeSavedIncrementally();
-  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, restored: false, warnings };
+  const source = { doc, encrypted, signed, acroform: !acroform.isNull(), xfa, repaired, restored: false, restricted: false, warnings };
   if (opts.readOnly) return source;
 
-  // An owner password can forbid changes. We do not work around it.
+  // An owner password can forbid changes. With no open password, and extraction
+  // for accessibility allowed, an accessible copy is still made; the output keeps
+  // the owner's encryption and permissions.
   if (!doc.hasPermission("edit")) {
-    throw new IrisPdfError("permissions_denied", "The PDF's owner does not permit changes to it.");
+    if (encrypted || !doc.hasPermission("accessibility")) {
+      throw new IrisPdfError("permissions_denied", "The PDF's owner does not permit changes to it, or extraction for accessibility.");
+    }
+    source.restricted = true;
+    warnings.push({ code: "owner_restricted", detail: "The PDF's owner forbids changes; it was tagged because its permissions allow extraction for accessibility. Its form is filled only if the owner allows that, and no fields are added. The output keeps those permissions." });
   }
   // A damaged file cannot be updated in place. It is rewritten from what mupdf
   // repaired, which is also what the checks render as the original.
