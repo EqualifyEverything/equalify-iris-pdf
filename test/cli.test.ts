@@ -25,6 +25,13 @@ test("tag writes the PDF and the report, and exits 0", () => {
   assert.equal(JSON.parse(readFileSync(report, "utf8")).verification.pixels, "identical-outside-fields");
 });
 
+test("--report-detail adds the detail to the report, and --help names it", () => {
+  const out = join(dir, "detail.pdf"), report = join(dir, "detail.json");
+  assert.equal(run(...tagArgs("text-simple", out, "--report", report, "--report-detail")).code, 0);
+  assert.equal(JSON.parse(readFileSync(report, "utf8")).detail.pages[0].page, 1);
+  assert.match(run("tag", "--help").out, /--report-detail/);
+});
+
 test("a refusal exits 1, writes no PDF, and still writes the report", () => {
   const out = join(dir, "no.pdf"), report = join(dir, "no.json");
   const r = run("tag", "--pdf", fixture("signed.pdf"), "--pages", fixture("form-acroform.pages.json"), "--out", out, "--report", report);

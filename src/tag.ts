@@ -18,7 +18,8 @@ import { ocrWords } from "./ocr/tesseract.ts";
 import { FieldMaker, fieldNames } from "./form/create.ts";
 import { comparePixels } from "./verify/pixels.ts";
 import { compareText } from "./verify/text.ts";
-import { EXIT, IrisPdfError, newReport, type PageReport, type Report, type Warning } from "./report.ts";
+import { cut, EXIT, IrisPdfError, MAX_ALT, MAX_ELEMENTS, MAX_EXCERPT, MAX_TREE_BYTES, newDetail, newReport, wordList, type Detail, type ElemDetail, type PageReport, type Report, type Warning } from "./report.ts";
+import { structTree, type Elem } from "./pdf/read.ts";
 
 export type PagesInput = { lang?: string; title?: string; pages: { sourcePage: number; html: string }[] };
 
@@ -28,7 +29,23 @@ export type TagOptions = OpenOptions & {
   title?: string;
   flatten?: boolean;
   inPlace?: boolean; // tag the page's own text where it is (the default), not a copy in an overlay
+  detail?: boolean; // add report.detail
 };
+
+// Time per step, for --report-detail.
+class Clock {
+  private t = performance.now();
+  private into?: Detail["timing"];
+  constructor(into?: Detail["timing"]) { this.into = into; }
+  lap(step: keyof Detail["timing"]) {
+    const now = performance.now();
+    if (this.into) this.into[step] += now - this.t;
+    this.t = now;
+  }
+  done() {
+    if (this.into) for (const k of Object.keys(this.into) as (keyof Detail["timing"])[]) this.into[k] = Math.round(this.into[k]);
+  }
+}
 
 // Throws IrisPdfError. `report` is filled in as far as the run got, either way.
 // Tagging the page's own text is checked like the rest; if it fails, the
@@ -52,6 +69,8 @@ export function withFallback<T>(run: (inPlace: boolean) => T, report: Report): T
 }
 
 function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: Report, inPlace: boolean): Uint8Array {
+  const detail = opts.detail ? (report.detail = newDetail()) : undefined;
+  const clock = new Clock(detail?.timing);
   const src = openPdf(pdf, opts);
   const { doc } = src;
   // The old overlay's text is gone on purpose, so the text check compares against the source without it.
@@ -77,6 +96,7 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
 
   // Forms: check every value, then set them, then flatten if asked. A form
   // with no fields gets them from its HTML, page by page, and is filled after.
+  clock.lap("open");
   let fields = inventory(doc);
   const values = opts.values ?? {};
   // Under an owner's restrictions only tagging is allowed, and filling if the owner permits it.
@@ -93,13 +113,14 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   }
   const widgets = allWidgets(doc).map((w) => ({ ...w, box: w.widget.getBounds() as Box, used: false }));
   if (opts.flatten) doc.bake(false, true);
+  clock.lap("form");
 
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
-  const { shift, detail } = headingShift([...html.keys()].sort((a, b) => a - b).map((i) => html.get(i)!), lang);
-  if (detail) warn({ code: "headings_shifted", detail });
+  const { shift, detail: shifted } = headingShift([...html.keys()].sort((a, b) => a - b).map((i) => html.get(i)!), lang);
+  if (shifted) warn({ code: "headings_shifted", detail: shifted });
   const marked = pagesWithMcids(doc);
   if (marked.length) warn({ code: "source_marked_content", detail: `Pages ${marked.join(", ")} carry marked-content ids from an earlier tag tree, or could not be checked; the output does not claim PDF/UA-1.` });
   const struct = new StructTree(doc);
@@ -107,9 +128,12 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   const written: { page: mupdf.PDFObject; ops: string; figures: Map<number, number>; source?: PageText; mark?: (id: number) => Mark | undefined }[] = [];
   const overlayText = new Map<number, string>(); // per page index
   let untagged = 0; // pages left as they were
+  const flattened = new Map<number, string>(); // element holding a flattened field's value -> the field's name
   for (let i = 0; i < pageCount; i++) {
     const page = doc.loadPage(i);
+    clock.lap("tag");
     if (!html.has(i)) {
+      detail?.pages.push(pageDetail(i + 1, { matched: [], furniture: [], added: [], lost: [], redrawn: [] }));
       // Nothing says what this page holds, so it is left exactly as it was.
       // A blank page with no annotations to tag needs no tags, so it is not a warning.
       const blank = drawsNothing(page) && !needTags(page.getObject().get("Annots"));
@@ -119,10 +143,12 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
       continue;
     }
     const r = tagPage(page, i, html.get(i)!, {
-      doc, struct, fonts, lang, flatten: !!opts.flatten, warn, maker, shift, inPlace,
+      doc, struct, fonts, lang, flatten: !!opts.flatten, warn, maker, shift, inPlace, clock, flattened,
       widgets: widgets.filter((w) => w.page === i), allWidgets: widgets,
     });
+    clock.lap("tag");
     report.pages.push(r.report);
+    detail?.pages.push(pageDetail(i + 1, r.words));
     if (r.untagged) untagged++;
     if (r.report.textSource === "pdf-text") {
       report.source.hadTextLayer.push(i + 1);
@@ -134,18 +160,23 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
       overlayText.set(i, r.overlay.text);
     }
   }
-  for (const w of widgets) if (!w.used) report.form.unresolved.push(w.name);
+  for (const w of widgets) if (!w.used) {
+    report.form.unresolved.push(w.name);
+    detail?.fields.unresolved.push({ name: w.name, page: w.page + 1, code: html.has(w.page) ? "field_not_in_html" : "page_not_in_html" });
+  }
   if (maker) {
     fields = inventory(doc);
     checkValues(fields, values).forEach(warn);
     filled = setValues(doc, fields, values);
     report.form.created = maker.created;
+    if (detail) detail.fields.created = maker.placed;
     // Typed text is drawn in Helvetica, which is not embedded.
     const more = unembeddedFonts(doc).filter((f) => !unembedded.includes(f));
     if (more.length) warn({ code: "font_not_embedded", detail: `${more.join(", ")}, for the filled fields; the output does not claim PDF/UA-1.` });
     unembedded = [...unembedded, ...more];
   }
   Object.assign(report.form, { fields: fields.length, set: filled.set, skippedReadOnly: filled.skippedReadOnly });
+  clock.lap("form");
 
   // Fonts go in last, as one subset holding every glyph the overlays use.
   const fontRefs = fonts.embed(doc, written.map((w) => w.ops));
@@ -163,8 +194,51 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
-  verify(pdf, baseline, out, opts, filled.changed, overlayText, report);
+  clock.lap("save");
+  detail?.fields.unresolved.unshift(...report.warnings.filter((w) => FIELD_PROBLEMS.includes(w.code)).map((w) => ({ name: w.detail ?? "", page: w.page, code: w.code })));
+  verify(pdf, baseline, out, opts, filled.changed, overlayText, report, clock, flattened);
   return out;
+}
+
+const FIELD_PROBLEMS = ["field_not_placed", "field_not_in_pdf", "field_on_other_page", "field_without_name", "field_not_in_html"];
+type Words = Record<"matched" | "furniture" | "added" | "lost" | "redrawn", string[]>;
+const pageDetail = (page: number, w: Words) => ({
+  page, matched: wordList(w.matched), furniture: wordList(w.furniture), added: wordList(w.added), lost: wordList(w.lost), redrawn: wordList(w.redrawn),
+  differingPixels: 0, textKept: true,
+});
+
+// The tagged tree for the report, without any form value: a flattened field's element gives its name instead.
+function treeDetail(root: Elem, flattened: Map<number, string>, detail: Detail) {
+  let n = 0, bytes = 0;
+  const str = (o: mupdf.PDFObject, max = MAX_EXCERPT) => (o.isString() ? cut(o.asString(), max) : undefined);
+  const visit = (e: Elem): ElemDetail | null => {
+    if (n >= MAX_ELEMENTS || bytes >= MAX_TREE_BYTES) return (detail.structureTruncated = true), null;
+    n++;
+    const out: ElemDetail = { type: e.type };
+    if (e.pages.size) out.page = Math.min(...e.pages) + 1;
+    const value = e.dict.isIndirect() ? flattened.get(e.dict.asIndirect()) : undefined;
+    if (value !== undefined) out.field = value;
+    else if (e.text) out.text = cut(e.text, MAX_EXCERPT);
+    out.alt = str(e.dict.get("Alt"), MAX_ALT);
+    out.lang = str(e.dict.get("Lang"));
+    for (const o of e.objr) {
+      out.href ??= str(o.get("A", "URI"));
+      if (o.get("Subtype").isName() && o.get("Subtype").asName() === "Widget") out.field ??= cut(fieldName(o), MAX_EXCERPT);
+    }
+    for (const k of Object.keys(out) as (keyof ElemDetail)[]) if (out[k] === undefined) delete out[k];
+    bytes += JSON.stringify(out).length;
+    const kids = e.kids.map(visit).filter((k) => k !== null);
+    if (kids.length) out.kids = kids;
+    return out;
+  };
+  detail.structure = visit(root);
+}
+
+// A widget's full field name: its /T and its parents', joined by periods.
+function fieldName(widget: mupdf.PDFObject): string {
+  const parts: string[] = [];
+  for (let f = widget, i = 0; !f.isNull() && i < 32; f = f.get("Parent"), i++) if (f.get("T").isString()) parts.unshift(f.get("T").asString());
+  return parts.join(".");
 }
 
 // PDF/UA-1 7.18.1, 7.18.3: hidden annotations and popups are not tagged.
@@ -190,6 +264,8 @@ type PageCtx = {
   maker?: FieldMaker; // a flat form: its fields are made from the HTML
   shift: number; // heading levels to move up
   inPlace: boolean;
+  clock: Clock;
+  flattened: Map<number, string>;
 };
 
 const PIXEL_DPI = 150; // verify() renders at this, and so does inlinePage
@@ -215,7 +291,7 @@ function sourceText(doc: mupdf.PDFDocument, page: mupdf.PDFPage) {
 // One page: find its words, align Iris's words to them, write the overlay and
 // the page's part of the structure tree. overlay is null if the page is left alone.
 type Written = { ops: string; text: string; figures: Map<number, number>; source?: PageText; mark?: (id: number) => Mark | undefined };
-function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; overlay: Written | null; untagged?: boolean } {
+function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { report: PageReport; words: Words; overlay: Written | null; untagged?: boolean } {
   const n = i + 1;
   const warn = (w: Warning) => ctx.warn({ page: n, ...w });
   const plan = buildPage(html, ctx.lang, `p${n}-`, warn, ctx.shift);
@@ -240,6 +316,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const inField = (w: PageWord) => ctx.widgets.some((f) => overlaps(f.box, w.box, 0.5));
   words = words.filter((w) => !inField(w));
   report.words = words.length;
+  ctx.clock.lap("read");
 
   // Align, then place every HTML word: on its page word, or beside its neighbour.
   const tokens = joinHyphenated(words);
@@ -254,16 +331,19 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const sharing = new Map<number, number[]>(); // page token -> the HTML words on it
   match.forEach((t, k) => t >= 0 && sharing.set(t, [...(sharing.get(t) ?? []), k]));
   if (!complete) warn({ code: "alignment_incomplete", detail: "The page and the HTML differ too much to match every word in time." });
+  ctx.clock.lap("match");
+  const listed: Words = { matched: [], furniture: [], added: [], lost: [], redrawn: [] };
   const blockOf = new Map<number, number>();
   const matched = new Set<Word>();
   // In place: the page's codes each HTML word owns, and the text a reader is given for them if it differs.
   const codes = new Map<Word, number[]>(), actual = new Map<Word, string>();
   match.forEach((t, k) => {
     if (t < 0) {
-      if (ordered[k].word.norm) report.addedFromHtml++; // punctuation is not a word
+      if (ordered[k].word.norm) report.addedFromHtml++, listed.added.push(ordered[k].word.text); // punctuation is not a word
       return;
     }
     report.matched++;
+    listed.matched.push(ordered[k].word.text);
     matched.add(ordered[k].word);
     const on = tokens[t].words.map((j) => words[j]), w = ordered[k].word, ks = sharing.get(t)!;
     if (k === ks[0] && on.every((p) => p.codes)) { // once per page word
@@ -304,9 +384,11 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
     for (const w of t.words.map((j) => words[j])) {
       if (isFurniture(w, bounds[3] - bounds[1], n)) {
         report.furniture++;
+        listed.furniture.push(w.text);
         continue;
       }
       report.lost++;
+      listed.lost.push(w.text);
       if (!run) lost.set(block, [...(lost.get(block) ?? []), (run = { words: [] })]);
       const word: Word = { text: w.text, norm: "", at: placed(w, bounds) };
       run.words.push(word);
@@ -324,7 +406,7 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   const links = linkAnnots(page);
   const onPage = new Set(report.textSource === "pdf-text" ? [...matched, ...[...lost.values()].flat().flatMap((r) => r.words)] : []);
   const place = src ? { codes, actual, seg: segments(kids, codes, actual, src.text, src.ink), marks: new Map<number, Mark>() } : null;
-  const e: Emitter = { ...ctx, pageObj, overlay, links, warn, mcids: 0, images: [], figures: new Map(), place, onPage, redrawn: 0 };
+  const e: Emitter = { ...ctx, pageObj, overlay, links, warn, mcids: 0, images: [], figures: new Map(), place, onPage, redrawn: listed.redrawn };
   if (hasFigure(plan)) {
     const images = imagesInOrder(pageImages(page), bounds, report.textSource !== "pdf-text");
     if (images.length === plan.images) e.images = images;
@@ -352,15 +434,15 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
   }
   if (!pageObj.get("Annots").isNull()) pageObj.put("Tabs", ctx.doc.newName("S"));
   report.mcids = e.mcids;
-  report.redrawn = e.redrawn;
+  report.redrawn = e.redrawn.length;
   if (!e.mcids) {
     // Nothing to tag. A page that draws something is left as it was, not hidden as an artifact.
-    if (drawsNothing(page)) return { report, overlay: null };
+    if (drawsNothing(page)) return { report, words: listed, overlay: null };
     warn({ code: "page_not_tagged", detail: "The HTML for this page holds nothing to tag; it was left untagged." });
-    return { report, overlay: null, untagged: true };
+    return { report, words: listed, overlay: null, untagged: true };
   }
   const mark = place ? (id: number) => place.marks.get(place.seg.get(id) ?? -1) : undefined;
-  return { report, overlay: { ops: overlay.toString(), text: overlay.text, figures: e.figures, source: src?.text, mark } };
+  return { report, words: listed, overlay: { ops: overlay.toString(), text: overlay.text, figures: e.figures, source: src?.text, mark } };
 }
 
 // The marked-content sequence (a number) each of the page's codes goes in.
@@ -421,7 +503,7 @@ type Emitter = PageCtx & {
   // In place: each word's codes, the ActualText some need, each code's sequence, and each sequence's mark.
   place: { codes: Map<Word, number[]>; actual: Map<Word, string>; seg: Map<number, number>; marks: Map<number, Mark> } | null;
   onPage: Set<Word>; // words the page's text layer already draws
-  redrawn: number; // of those, how many the overlay draws again
+  redrawn: string[]; // of those, the ones the overlay draws again
 };
 
 const hasFigure = (n: Node): boolean => n.type === "Figure" || n.kids.some((k) => !isRun(k) && hasFigure(k));
@@ -583,7 +665,7 @@ function writeRun(type: string, elem: mupdf.PDFObject, words: Word[], e: Emitter
     if (!codes) {
       if (!open) begin();
       e.overlay.word(w.text, w.at!.box, w.at!.baseline, w.at!.size, w.space ?? true);
-      if (e.onPage.has(w)) e.redrawn++;
+      if (e.onPage.has(w)) e.redrawn.push(w.text);
       continue;
     }
     if (open) (e.overlay.end(), (open = false));
@@ -637,6 +719,7 @@ function emitField(n: Node, parent: mupdf.PDFObject, e: Emitter) {
     if (!text) return;
     const at = { box: mine[0].box, baseline: mine[0].box[3] - 2, size: Math.min(12, mine[0].box[3] - mine[0].box[1]) };
     const elem = e.struct.add(parent, "P", f.label ? { Alt: e.doc.newString(f.label) } : {});
+    e.flattened.set(elem.asIndirect(), mine[0].name);
     return writeRun("P", elem, [{ text, norm: "", at }], e);
   }
   const elem = e.struct.add(parent, "Form", f.label ? { Alt: e.doc.newString(f.label) } : {});
@@ -726,7 +809,7 @@ function pagesByIndex(input: PagesInput, pageCount: number): Map<number, string>
   return out;
 }
 
-function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: TagOptions, changed: Map<number, Box[]>, added: Map<number, string>, report: Report) {
+function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: TagOptions, changed: Map<number, Box[]>, added: Map<number, string>, report: Report, clock: Clock, flattened: Map<number, string>) {
   const open = (b: Uint8Array) => {
     const d = new mupdf.PDFDocument(b);
     if (d.needsPassword()) d.authenticatePassword(opts.password ?? "");
@@ -740,6 +823,20 @@ function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: Ta
     differingPixels: pixels.reduce((s, f) => s + f.differing, 0),
     textPreserved: !text.length,
   };
+  clock.lap("check");
+  const detail = report.detail;
+  if (detail) {
+    for (const p of detail.pages) {
+      p.differingPixels = pixels.filter((f) => f.page === p.page).reduce((s, f) => s + f.differing, 0);
+      p.textKept = !text.some((f) => f.page === p.page);
+    }
+    try {
+      treeDetail(structTree(after), flattened, detail);
+    } catch {
+      detail.structureTruncated = true; // too deep to read back
+    }
+  }
+  clock.done();
   for (const f of pixels) report.warnings.push({ code: "pixels_changed", page: f.page, detail: `${f.differing} pixels differ within [${f.box.map(Math.round).join(", ")}]` });
   for (const f of text) {
     const detail = [f.missing.join(" "), f.overlayMissing ? `${f.overlayMissing} characters of the tagged text are not readable` : ""];
