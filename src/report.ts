@@ -17,6 +17,48 @@ export type PageReport = {
   mcids: number;
 };
 
+// --report-detail: where and why, not just how many. Capped so 25 pages stay
+// under a megabyte: lists of 50 words of at most 40 characters, and a tree of
+// at most 2000 elements and 400 kB. It never holds a form value; a flattened
+// field's element gives its field name instead of its text.
+export const MAX_LISTED = 50, MAX_WORD = 40, MAX_ELEMENTS = 2000, MAX_TREE_BYTES = 400_000, MAX_EXCERPT = 80, MAX_ALT = 300;
+export type WordList = { count: number; words: string[] }; // words: the first MAX_LISTED
+export type PageDetail = {
+  page: number;
+  matched: WordList; // Iris's words found on the page, tagged there
+  furniture: WordList; // page words left out as headers, footers, page numbers: artifacts
+  added: WordList; // Iris's words the page does not draw: put in the added text layer
+  lost: WordList; // page words not in the HTML: kept as a paragraph (unmatched_text)
+  redrawn: WordList; // page words drawn again in the added layer (duplicate_text_layer)
+  differingPixels: number;
+  textKept: boolean;
+};
+export type ElemDetail = {
+  type: string; page?: number; text?: string; alt?: string; lang?: string; href?: string; field?: string; kids?: ElemDetail[];
+};
+export type Detail = {
+  timing: { open: number; form: number; read: number; match: number; tag: number; save: number; check: number }; // ms
+  pages: PageDetail[];
+  structure: ElemDetail | null; // the first MAX_ELEMENTS elements, depth first; null if the run stopped before it
+  structureTruncated: boolean;
+  fields: {
+    created: { name: string; type: string; page: number; box: number[]; label: string }[]; // box: page points, from the top left
+    // code: the warning that says why. name: the field's name; for an HTML control with
+    // none (field_not_placed, field_without_name), its label, else its type or "a form control".
+    unresolved: { name: string; page?: number; code: string }[];
+  };
+};
+
+export function newDetail(): Detail {
+  return {
+    timing: { open: 0, form: 0, read: 0, match: 0, tag: 0, save: 0, check: 0 },
+    pages: [], structure: null, structureTruncated: false, fields: { created: [], unresolved: [] },
+  };
+}
+
+export const cut = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s);
+export const wordList = (words: string[]): WordList => ({ count: words.length, words: words.slice(0, MAX_LISTED).map((w) => cut(w, MAX_WORD)) });
+
 export type Report = {
   tool: string;
   source: {
@@ -40,6 +82,7 @@ export type Report = {
   sizeIncreaseBytes: number;
   warnings: Warning[];
   error?: { code: string; message: string };
+  detail?: Detail;
 };
 
 export function newReport(): Report {

@@ -13,9 +13,11 @@ import { cellAt, cellBlank, cellUnder, Ink, markBlank, rowsOf, textBlank } from 
 export type PageText = { matched: Set<Word>; order: Word[]; words: { norm: string; box: Box }[] };
 
 export type Created = { name: string; type: ControlType; page: number };
+export type Placed = Created & { box: number[]; label: string }; // box in page points, from the top left
 
 export class FieldMaker {
   readonly created: Created[] = [];
+  readonly placed: Placed[] = []; // each widget: where it went, and the label it is beside
   private names = new Set<string>();
   private doc: mupdf.PDFDocument;
   constructor(doc: mupdf.PDFDocument) { this.doc = doc; }
@@ -80,6 +82,7 @@ export class FieldMaker {
         obj.put("AP", { N: { [state]: this.stream(dot(w, h), w, h), Off: this.stream("", w, h) } });
         obj.put("AS", n("Off"));
         f.name = g.name, f.value = state;
+        this.placed.push({ name: g.name, type: "radio", page: index + 1, box: rounded(box), label: f.label });
         continue;
       }
       const name = this.unique(f.name || f.id || slug(f.label) || f.type!);
@@ -103,6 +106,7 @@ export class FieldMaker {
       }
       f.name = name;
       this.created.push({ name, type: f.type!, page: index + 1 });
+      this.placed.push({ name, type: f.type!, page: index + 1, box: rounded(box), label: f.label });
     }
     // A page loaded afresh sees the new widgets.
     return this.doc.loadPage(index).getWidgets().filter((w) => made.has(w.getObject().asIndirect())).map((w) => widgetOf(w, index));
@@ -212,3 +216,5 @@ function dot(w: number, h: number): string {
   return `0 g ${x + r} ${y} m ${x + r} ${y + k} ${x + k} ${y + r} ${x} ${y + r} c ${x - k} ${y + r} ${x - r} ${y + k} ${x - r} ${y} c ` +
     `${x - r} ${y - k} ${x - k} ${y - r} ${x} ${y - r} c ${x + k} ${y - r} ${x + r} ${y - k} ${x + r} ${y} c f\n`;
 }
+
+const rounded = (b: Box) => b.map((v) => Math.round(v * 10) / 10);

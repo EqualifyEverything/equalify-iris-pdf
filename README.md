@@ -37,6 +37,7 @@ iris-pdf review --pdf out.pdf [--report review.json]   # optional AI review, bel
 | `--flatten` | Draw the field values into the page and remove the fields. |
 | `--password` | Open an encrypted PDF. The output keeps its encryption. |
 | `--allow-signed` | Tag a signed PDF. This breaks the signature, and the report says so. |
+| `--report-detail` | Add `detail` to the report: where and why, below. |
 
 ### pages.json
 
@@ -79,6 +80,15 @@ A page that could not be tagged is left untagged, with a warning, and the run st
 
 `--report` writes JSON: per page, where the text came from and how many words matched; the structure written; fields set and skipped; the check results; and every warning. Warnings name what could not be done, for example `unmatched_text` (page text missing from the HTML, kept as a paragraph), `missing_alt`, `field_not_in_html`, `unmatched_link`, `duplicate_text_layer` (words drawn again in the added layer, so plain extractors may show them twice), `in_place_failed`, `page_not_in_html` (a blank page needs no HTML and is not warned), `page_not_tagged`, `no_text_positions` (a scan, with Tesseract missing or failing: tagged, but its text does not line up with its image), `no_title`, `field_not_placed` (a flat form's control with no blank found for it), `font_not_embedded` (a source font has no embedded program, which PDF/UA-1 requires; the source drawing is not changed), `source_marked_content` (a page not in the HTML, or a form XObject, pattern or annotation a page draws, has marked-content ids left from an earlier tag tree), `figure_without_image` (the page's images do not pair up with the HTML's `<img>`, so its figures do not contain their images), `owner_restricted` (the owner forbids changes but allows extraction for accessibility, so it was tagged; its form is filled only if the owner allows filling, never flattened, and gets no new fields; the output keeps the owner's permissions), `alignment_incomplete` (the page and the HTML differ too much to match every word in time; the rest is kept as unmatched text).
 
+With `--report-detail`, the report also has `detail`:
+
+- `structure`: the tag tree, each element with its type, page, text (cut to 80 characters), `alt`, `lang`, link `href` and `field` name. At most 2000 elements and 400 kB (`structureTruncated` says if cut).
+- `pages`: per page, the words `matched`, left out as `furniture` (headers, footers, page numbers), `added` from the HTML into the added layer, `lost` (`unmatched_text`) and `redrawn` (`duplicate_text_layer`): each a `count` and its first 50 `words`. And the checks: `differingPixels`, `textKept`.
+- `fields`: each `created` field's page, box (points from the page's top left) and the label it was placed beside; each `unresolved` field with the warning code that says why (an HTML control with no name gives its label instead).
+- `timing`: whole milliseconds for open, form, read, match, tag, save and check. A refused run has the steps it reached, and `structure: null`.
+
+It never holds a form value: a flattened field's element gives its `field` name, not its text. To check that an iris-pdf has the option, look for `--report-detail` in `iris-pdf tag --help`.
+
 ## Review
 
 `review` checks what `check` cannot: whether the tags say what the page says. For each page it sends a model the page image and what a screen reader gets from the page: the structure, text, alt text, link targets and field names. It reports missing content, wrong reading order, wrong element types or heading levels, tables, alt text, link text, field names and language. It prints one finding per line, writes them to `--report` as JSON with the tokens used and an estimated cost, and exits 0. A page the model could not review is reported with its error, the other pages are kept, and the exit is 1. Nothing in the PDF is changed.
@@ -102,7 +112,7 @@ Errors print one line: `iris-pdf: <code>: <message>`.
 
 ## Privacy
 
-Form values are personal data. They are never printed, logged, or put in the report or an error message; only field names are. `review` sends page images, which show any filled-in values, to the model provider. After `--flatten` the values are also tagged text, so they are sent as text too and can appear in its findings.
+Form values are personal data. They are never printed, logged, or put in the report or an error message; only field names are. `review` sends page images, which show any filled-in values, to the model provider. After `--flatten` the values are also tagged text, so they are sent as text too and can appear in its findings. From then on they are the page's text: retagging a flattened PDF treats them as any other text, in its report too.
 
 ## Known limits
 

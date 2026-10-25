@@ -11,7 +11,7 @@ const USAGE = `iris-pdf ${VERSION}
 
 iris-pdf tag --pdf <in.pdf> --pages <pages.json> --out <out.pdf>
              [--values <values.json>] [--report <report.json>] [--lang <bcp47>] [--title <text>]
-             [--flatten] [--password <pw>] [--allow-signed]
+             [--flatten] [--password <pw>] [--allow-signed] [--report-detail]
 iris-pdf fields --pdf <in.pdf> [--json] [--password <pw>]
 iris-pdf check --pdf <in.pdf>
 iris-pdf review --pdf <tagged.pdf> [--report <review.json>] [--provider anthropic|bedrock] [--model <id>] [--password <pw>]`;
@@ -19,7 +19,7 @@ iris-pdf review --pdf <tagged.pdf> [--report <review.json>] [--provider anthropi
 const OPTIONS = {
   pdf: { type: "string" }, pages: { type: "string" }, values: { type: "string" }, out: { type: "string" },
   report: { type: "string" }, lang: { type: "string" }, title: { type: "string" }, flatten: { type: "boolean" },
-  password: { type: "string" }, "allow-signed": { type: "boolean" },
+  password: { type: "string" }, "allow-signed": { type: "boolean" }, "report-detail": { type: "boolean" },
   provider: { type: "string" }, model: { type: "string" }, json: { type: "boolean" }, help: { type: "boolean", short: "h" },
 } as const;
 
@@ -89,7 +89,7 @@ async function main(argv: string[]): Promise<number> {
   const opts: TagOptions = {
     values: args.values ? (readJson(args.values, "values") as TagOptions["values"]) : undefined,
     lang: args.lang, title: args.title, flatten: args.flatten, password: args.password,
-    allowSigned: args["allow-signed"],
+    allowSigned: args["allow-signed"], detail: args["report-detail"],
   };
   const report = newReport();
   const pdf = readPdf(args.pdf);
