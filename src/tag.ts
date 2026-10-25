@@ -32,18 +32,17 @@ export type TagOptions = OpenOptions & {
   detail?: boolean; // add report.detail
 };
 
-// Time per step, for --report-detail.
+// Time per step, for --report-detail: whole ms, kept current, so a refused run has them too.
 class Clock {
   private t = performance.now();
   private into?: Detail["timing"];
+  private raw: Partial<Detail["timing"]> = {};
   constructor(into?: Detail["timing"]) { this.into = into; }
   lap(step: keyof Detail["timing"]) {
     const now = performance.now();
-    if (this.into) this.into[step] += now - this.t;
+    this.raw[step] = (this.raw[step] ?? 0) + now - this.t;
+    if (this.into) this.into[step] = Math.round(this.raw[step]);
     this.t = now;
-  }
-  done() {
-    if (this.into) for (const k of Object.keys(this.into) as (keyof Detail["timing"])[]) this.into[k] = Math.round(this.into[k]);
   }
 }
 
@@ -836,7 +835,6 @@ function verify(pdf: Uint8Array, baseline: Uint8Array, out: Uint8Array, opts: Ta
       detail.structureTruncated = true; // too deep to read back
     }
   }
-  clock.done();
   for (const f of pixels) report.warnings.push({ code: "pixels_changed", page: f.page, detail: `${f.differing} pixels differ within [${f.box.map(Math.round).join(", ")}]` });
   for (const f of text) {
     const detail = [f.missing.join(" "), f.overlayMissing ? `${f.overlayMissing} characters of the tagged text are not readable` : ""];

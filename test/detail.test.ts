@@ -36,6 +36,23 @@ test("detail: where each created field went, and why a field is unresolved", () 
   assert.deepEqual(unresolved.map((u) => [u.name, u.code]).sort(), [["pet", "field_not_in_pdf"], ["reset", "field_not_in_html"]]);
 });
 
+test("detail: page text the HTML lacks is lost; fields on a page left out, or with no blank, are unresolved", () => {
+  const short = { ...pagesOf("text-simple"), pages: [{ sourcePage: 1, html: "<h1>Parking Permit</h1>" }] };
+  const lost = detailed("text-simple", {}, short).detail!.pages[0].lost;
+  assert.ok(lost.count > 10 && lost.words.includes("Fees"));
+  const { unresolved } = detailed("form-acroform", {}, { ...pagesOf("form-acroform"), pages: [] }).detail!.fields;
+  assert.ok(unresolved.length && unresolved.every((u) => u.code === "page_not_in_html" && u.page === 1));
+  const zebra = { ...pagesOf("form-flat"), pages: [{ sourcePage: 1, html: `<h1>Permit Application</h1><label>Zebra code<input name="z"></label>` }] };
+  assert.deepEqual(detailed("form-flat", {}, zebra).detail!.fields.unresolved, [{ name: "z", page: 1, code: "field_not_placed" }]);
+});
+
+test("detail: a refused run keeps the steps it reached, in whole ms", () => {
+  const report = newReport();
+  assert.throws(() => tag(readFixture("form-flat.pdf"), pagesOf("form-flat"), { detail: true, values: { nope: "x" } }, report));
+  assert.ok(Object.values(report.detail!.timing).every(Number.isInteger));
+  assert.equal(report.detail!.structure, null);
+});
+
 test("detail never holds a form value, filled or flattened", () => {
   const values = { "applicant.name": "Ada Zyxwvut" };
   for (const flatten of [false, true]) {

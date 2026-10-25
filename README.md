@@ -84,8 +84,8 @@ With `--report-detail`, the report also has `detail`:
 
 - `structure`: the tag tree, each element with its type, page, text (cut to 80 characters), `alt`, `lang`, link `href` and `field` name. At most 2000 elements and 400 kB (`structureTruncated` says if cut).
 - `pages`: per page, the words `matched`, left out as `furniture` (headers, footers, page numbers), `added` from the HTML into the added layer, `lost` (`unmatched_text`) and `redrawn` (`duplicate_text_layer`): each a `count` and its first 50 `words`. And the checks: `differingPixels`, `textKept`.
-- `fields`: each `created` field's page, box (points from the page's top left) and the label it was placed beside; each `unresolved` field with the warning code that says why.
-- `timing`: milliseconds for open, form, read, match, tag, save and check.
+- `fields`: each `created` field's page, box (points from the page's top left) and the label it was placed beside; each `unresolved` field with the warning code that says why (an HTML control with no name gives its label instead).
+- `timing`: whole milliseconds for open, form, read, match, tag, save and check. A refused run has the steps it reached, and `structure: null`.
 
 It never holds a form value: a flattened field's element gives its `field` name, not its text. To check that an iris-pdf has the option, look for `--report-detail` in `iris-pdf tag --help`.
 

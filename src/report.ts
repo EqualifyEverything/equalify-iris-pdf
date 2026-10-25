@@ -39,11 +39,13 @@ export type ElemDetail = {
 export type Detail = {
   timing: { open: number; form: number; read: number; match: number; tag: number; save: number; check: number }; // ms
   pages: PageDetail[];
-  structure: ElemDetail | null; // the first MAX_ELEMENTS elements, depth first
+  structure: ElemDetail | null; // the first MAX_ELEMENTS elements, depth first; null if the run stopped before it
   structureTruncated: boolean;
   fields: {
     created: { name: string; type: string; page: number; box: number[]; label: string }[]; // box: page points, from the top left
-    unresolved: { name: string; page?: number; code: string }[]; // code: the warning that says why
+    // code: the warning that says why. name: the field's name; for an HTML control with
+    // none (field_not_placed, field_without_name), its label, else its type or "a form control".
+    unresolved: { name: string; page?: number; code: string }[];
   };
 };
 
