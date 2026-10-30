@@ -124,13 +124,22 @@ function unkeyForms(doc: mupdf.PDFDocument) {
     if (!x.isStream() || !(x.get("Subtype").asName() === "Form" || x.get("PatternType").asNumber() === 1)) continue;
     x.delete("StructParents");
     x.delete("StructParent");
+    // A named property list (/P /MC0 BDC) keeps its /MCID in the resources; unmark() drops its use.
+    let named = false;
+    const props = x.get("Resources", "Properties");
+    if (props.isDictionary()) {
+      const ids: string[] = [];
+      props.forEach((p, k) => { if (p.isDictionary() && !p.get("MCID").isNull()) ids.push(String(k)); });
+      ids.forEach((k) => props.delete(k));
+      named = ids.length > 0;
+    }
     let body: string;
     try {
       body = Buffer.from(x.readStream().asUint8Array()).toString("latin1");
     } catch {
       continue;
     }
-    if (!/\/MCID\b/.test(withoutStrings(body))) continue;
+    if (!named && !/\/MCID\b/.test(withoutStrings(body))) continue;
     const clean = unmark(body);
     if (clean !== body) x.writeStream(Buffer.from(clean, "latin1"));
   }

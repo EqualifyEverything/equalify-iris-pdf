@@ -411,7 +411,7 @@ test("an unmatched internal link annotation still gets a description", () => {
   assert.ok(report.warnings.some((w) => w.code === "unmatched_link"));
 });
 
-test("a page missing from pages.json is left untouched, warned, and stops the PDF/UA claim", () => {
+test("a page missing from pages.json is left untagged, warned, and stops the PDF/UA claim", () => {
   const src = new mupdf.PDFDocument(readFixture("text-simple.pdf"));
   src.insertPage(-1, src.addPage([0, 0, 306, 396], 0, {}, "BT /F1 12 Tf 72 300 Td (Second page) Tj ET"));
   const pdf = src.saveToBuffer("").asUint8Array().slice();
