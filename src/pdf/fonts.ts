@@ -103,7 +103,9 @@ export function widthMismatches(doc: mupdf.PDFDocument): { mismatched: string[];
     const file = f.get("FontDescriptor", "FontFile2");
     if (!file.isStream()) continue;
     drawn ??= drawnGlyphs(doc);
-    const name = f.get("BaseFont").asName() || "(unnamed)", used = drawn.get(name);
+    // mupdf keeps 31 characters of a font's name, so a longer /BaseFont matches by its start.
+    const base = f.get("BaseFont").isName() ? f.get("BaseFont").asName() : "", name = base || "(unnamed)";
+    const used = drawn.get(base) ?? [...drawn].find(([k]) => k.length >= 31 && base.startsWith(k))?.[1];
     if (!used) continue;
     let font: mupdf.Font, glyphs: number;
     try {

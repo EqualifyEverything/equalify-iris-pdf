@@ -802,4 +802,17 @@ test("a TrueType CID font whose widths disagree with its program for a drawn gly
   const out = tag(build((k) => k.delete("W")).saveToBuffer("").asUint8Array().slice(), { lang: "zh", title: "t", pages: [{ sourcePage: 1, html: "<p>x</p>" }] }, {}, report);
   assert.ok(report.warnings.some((w) => w.code === "font_widths_mismatch"));
   assert.doesNotMatch(new mupdf.PDFDocument(out).getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  // mupdf keeps 31 characters of a name; a longer /BaseFont, or none, is still checked.
+  const named = (name: string | null) => build((k, d) => {
+    k.delete("W");
+    if (name) k.put("BaseFont", d.newName(name));
+    else k.delete("BaseFont");
+  });
+  assert.equal(widthMismatches(named("ABCDEF+NotoSansCJKjp-Regular-Identity-H")).mismatched.length, 1, "a name over 31 characters");
+  assert.equal(widthMismatches(named(null)).mismatched.length, 1, "no /BaseFont");
+  // Out of budget: warned as unchecked, not as a mismatch, and no claim.
+  const unchecked = newReport();
+  const longOut = tag(long.saveToBuffer("").asUint8Array().slice(), { lang: "zh", title: "t", pages: [{ sourcePage: 1, html: "<p>x</p>" }] }, {}, unchecked);
+  assert.deepEqual(["font_widths_unchecked", "font_widths_mismatch"].map((c) => unchecked.warnings.some((w) => w.code === c)), [true, false]);
+  assert.doesNotMatch(new mupdf.PDFDocument(longOut).getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });
