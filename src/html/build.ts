@@ -258,12 +258,15 @@ function dropEmptyRows(n: Node, at = { row: 0, reach: -1 }) {
 
 // Every TH gets an /ID and every TD a /Headers list naming the TH cells above
 // it in its column and before it in its row.
+// A row with fewer columns than the widest gets an empty TD across the rest,
+// the blank a browser leaves; a rowspan past the last row stops there, as in
+// HTML. Rows of unequal width fail PDF/UA-1 (7.2: same number of columns).
 function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
-  const rows: { cells: Node[]; head: boolean }[] = [];
+  const rows: { tr: Node; cells: Node[]; head: boolean }[] = [];
   const collect = (n: Node, head: boolean) => {
     for (const k of n.kids) {
       if (isRun(k)) continue;
-      if (k.type === "TR") rows.push({ cells: k.kids.filter((c): c is Node => !isRun(c) && !!c.span), head });
+      if (k.type === "TR") rows.push({ tr: k, cells: k.kids.filter((c): c is Node => !isRun(c) && !!c.span), head });
       else if (["THead", "TBody", "TFoot"].includes(k.type)) collect(k, k.type === "THead");
     }
   };
@@ -274,6 +277,7 @@ function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
     let c = 0;
     for (const cell of cells) {
       while (grid[r][c]) c++;
+      cell.span![1] = Math.min(cell.span![1], rows.length - r);
       const [cs, rs] = cell.span!;
       for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) (grid[r + dr] ??= [])[c + dc] = cell;
       if (cell.type === "TH") {
@@ -286,6 +290,12 @@ function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
       if (cs > 1 || rs > 1 || cell.type === "TH") cell.attrs = a;
       c += cs;
     }
+  });
+  const width = (r: number) => (grid[r] ?? []).filter(Boolean).length;
+  const widest = Math.max(0, ...rows.map((_, r) => width(r)));
+  rows.forEach(({ tr }, r) => {
+    const gap = widest - width(r);
+    if (gap > 0) tr.kids.push({ type: "TD", kids: [], span: [gap, 1], headers: [], ...(gap > 1 ? { attrs: { O: "Table", ColSpan: gap } } : {}) });
   });
   grid.forEach((row, r) => row.forEach((cell, c) => {
     if (cell.type !== "TD" || cell.headers) return;

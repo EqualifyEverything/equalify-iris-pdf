@@ -57,9 +57,10 @@ test("a page cut from mid-document, starting at h2, claims PDF/UA-1 and passes v
   assert.equal(passed, true, message);
 });
 
-test("a table with an empty row, as <tr><tr> parses, claims PDF/UA-1 and passes veraPDF", { skip: noVera }, () => {
+test("tables with an empty row (<tr><tr>), a short row and a rowspan past the end claim PDF/UA-1 and pass veraPDF", { skip: noVera }, () => {
   const pages = pagesOf("text-embedded");
-  pages.pages[0].html += "<table><tr><th>Zone</th><th>Fee</th></tr><tr><tr><td>North</td><td>20</td></tr></table>";
+  pages.pages[0].html += "<table><tr><th>Zone</th><th>Fee</th></tr><tr><tr><td>North</td><td>20</td></tr></table>" +
+    "<table><tr><th>Zone</th><th>Fee</th><th>Term</th></tr><tr><td>North</td></tr><tr><td rowspan=4>South</td><td>30</td><td>1</td></tr></table>";
   const path = join(dir, "empty-row.pdf");
   writeFileSync(path, tag(readFixture("text-embedded.pdf"), pages));
   assert.match(readFileSync(path, "latin1"), /<pdfuaid:part>1</);

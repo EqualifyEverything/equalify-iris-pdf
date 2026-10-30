@@ -157,6 +157,15 @@ test("a table row with no cells, and a row group left empty, are dropped", () =>
   assert.deepEqual(tds.map((t) => t.headers), [["p1-th1"], ["p1-th2"]]);
 });
 
+test("a short table row gets an empty cell across the rest, and a rowspan stops at the last row", () => {
+  const { top } = build(`<table><tr><th>A</th><th>B</th><th>C</th></tr><tr><td>1</td></tr><tr><td rowspan="9">2</td><td>3</td><td>4</td></tr></table>`);
+  const rows: Node[] = [], walk = (n: Node) => { if (n.type === "TR") rows.push(n); n.kids.forEach((k) => isRun(k) || walk(k)); };
+  walk(top);
+  const cells = (tr: Node) => tr.kids.filter((k): k is Node => !isRun(k)).map((c) => [c.type, c.span]);
+  assert.deepEqual(cells(rows[1]), [["TD", [1, 1]], ["TD", [2, 1]]]);
+  assert.deepEqual(cells(rows[2])[0], ["TD", [1, 1]]);
+});
+
 test("tables: header ids, scope and each cell's headers", () => {
   const { top } = build(
     "<table><thead><tr><th></th><th>Q1</th><th>Q2</th></tr></thead>" +
