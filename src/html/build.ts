@@ -194,6 +194,7 @@ function build(e: Elem | string, parent: Node, ctx: Ctx) {
     case "table": {
       const table = add("Table");
       kids(table, inner);
+      dropEmptyRows(table);
       return tableHeaders(table, ctx.prefix, ctx.ths);
     }
     case "th": case "td": {
@@ -236,6 +237,24 @@ function target(n: Node, id: string, ctx: Ctx) {
 }
 
 const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colgroup: "Column" })[s.toLowerCase()] ?? "Both";
+
+// A row with no cells, such as the one "<tr><tr>" parses to, reads as nothing
+// and fails PDF/UA-1 (7.2: rows have the same number of columns). So does a
+// row group left empty. A row a rowspan above reaches into is not empty: it
+// stays, so the cells below keep their columns. Rows count across the table, as in tableHeaders.
+function dropEmptyRows(n: Node, at = { row: 0, reach: -1 }) {
+  n.kids = n.kids.filter((k) => {
+    if (isRun(k)) return true;
+    if (k.type === "TR") {
+      const row = at.row++, cells = k.kids.filter((c): c is Node => !isRun(c) && !!c.span);
+      for (const c of cells) at.reach = Math.max(at.reach, row + c.span![1] - 1);
+      return cells.length > 0 || at.reach >= row || k.kids.some((c) => isRun(c) && c.words.length > 0);
+    }
+    if (!["THead", "TBody", "TFoot"].includes(k.type)) return true;
+    dropEmptyRows(k, at);
+    return k.kids.length > 0;
+  });
+}
 
 // Every TH gets an /ID and every TD a /Headers list naming the TH cells above
 // it in its column and before it in its row.
