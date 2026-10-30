@@ -139,6 +139,19 @@ test("retagging drops a foreign tag tree and what points into it", () => {
   assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K", "S").asName(), "Document", "a new tree");
 });
 
+test("a form sharing its resources with a page left out of the HTML leaves that page's named property alone", () => {
+  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const res = src.addObject({ Properties: { MC0: { MCID: 0 } } });
+  res.put("XObject", { Fn: src.addStream("/P /MC0 BDC 0 0 m EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 20, 20], Resources: res }) });
+  src.insertPage(-1, src.addPage([0, 0, 300, 300], 0, res, "/P /MC0 BDC 0 0 m EMC /Fn Do"));
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
+  const page = doc.findPage(1).get("Resources");
+  assert.ok(!page.get("Properties", "MC0").isNull(), "the page keeps it");
+  assert.ok(page.get("XObject", "Fn", "Resources", "Properties", "MC0").isNull(), "the form does not");
+  assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 2 /);
+});
+
 test("forms and tiling patterns lose their old keys and marked content, so no key has two holders (#54)", () => {
   for (const tree of [true, false]) {
     const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));

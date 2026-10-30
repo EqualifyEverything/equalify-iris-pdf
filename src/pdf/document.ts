@@ -125,13 +125,19 @@ function unkeyForms(doc: mupdf.PDFDocument) {
     x.delete("StructParents");
     x.delete("StructParent");
     // A named property list (/P /MC0 BDC) keeps its /MCID in the resources; unmark() drops its use.
-    let named = false;
-    const props = x.get("Resources", "Properties");
-    if (props.isDictionary()) {
-      const ids: string[] = [];
-      props.forEach((p, k) => { if (p.isDictionary() && !p.get("MCID").isNull()) ids.push(String(k)); });
-      ids.forEach((k) => props.delete(k));
-      named = ids.length > 0;
+    // The form gets its own copies: its resources may be its page's too.
+    const props = x.get("Resources", "Properties"), ids: string[] = [];
+    if (props.isDictionary()) props.forEach((p, k) => { if (p.isDictionary() && !p.get("MCID").isNull()) ids.push(String(k)); });
+    const named = ids.length > 0;
+    if (named) {
+      const copy = (d: mupdf.PDFObject, skip: string[] = []) => {
+        const out = doc.newDictionary();
+        d.forEach((v, k) => { if (!skip.includes(String(k))) out.put(k, v); });
+        return out;
+      };
+      const own = copy(x.get("Resources"));
+      own.put("Properties", copy(props, ids));
+      x.put("Resources", own);
     }
     let body: string;
     try {
