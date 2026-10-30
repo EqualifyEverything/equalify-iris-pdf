@@ -70,25 +70,33 @@ export function dropGlyphSets(doc: mupdf.PDFDocument) {
 // program's advances by more than a unit (PDF/UA-1 7.21.5). Only /W entries are
 // compared; with no /W at all, every glyph is /DW wide, so a program with other
 // advances among its first 256 glyphs counts. Simple fonts are not checked.
+// At most MAX_WIDTH_CHECKS glyphs are compared in all; a font still unchecked
+// when they run out counts as mismatched, so a crafted /W cannot stall the run.
+export const MAX_WIDTH_CHECKS = 100_000;
 export function widthMismatches(doc: mupdf.PDFDocument): string[] {
   const out = new Set<string>();
+  let budget = MAX_WIDTH_CHECKS;
   for (let n = 1; n < doc.countObjects(); n++) {
     const f = doc.newIndirect(n);
     if (!f.isDictionary() || !f.get("Subtype").isName() || f.get("Subtype").asName() !== "CIDFontType2") continue;
     const file = f.get("FontDescriptor", "FontFile2");
     if (!file.isStream()) continue;
-    let font: mupdf.Font;
+    let font: mupdf.Font, glyphs: number;
     try {
-      font = new mupdf.Font("check", file.readStream());
+      const program = file.readStream();
+      font = new mupdf.Font("check", program);
+      glyphs = glyphCount(program.asUint8Array());
     } catch {
       continue;
     }
     const map = f.get("CIDToGIDMap"), bytes = map.isStream() ? map.readStream().asUint8Array() : null;
     const gid = (cid: number) => (bytes ? ((bytes[2 * cid] ?? 0) << 8) | (bytes[2 * cid + 1] ?? 0) : cid);
-    const off = (cid: number, w: number) => Math.abs(font.advanceGlyph(gid(cid), 0) * 1000 - w) > 1;
+    const advance = (g: number) => font.advanceGlyph(g, 0) * 1000;
+    // A glyph the program lacks has no width to compare.
+    const off = (cid: number, w: number) => --budget < 0 || (gid(cid) < glyphs && Math.abs(advance(gid(cid)) - w) > 1);
     const w = f.get("W"), dw = f.get("DW").isNumber() ? f.get("DW").asNumber() : 1000;
     let bad = false;
-    if (!w.isArray()) for (let g = 1; g < 256 && !bad; g++) bad = font.advanceGlyph(g, 0) > 0 && Math.abs(font.advanceGlyph(g, 0) * 1000 - dw) > 1;
+    if (!w.isArray()) for (let g = 1; g < Math.min(256, glyphs) && !bad; g++) bad = --budget < 0 || (advance(g) > 0 && Math.abs(advance(g) - dw) > 1);
     for (let i = 0; w.isArray() && i + 1 < w.length && !bad; ) {
       const first = w.get(i).asNumber(), next = w.get(i + 1);
       if (next.isArray()) {
@@ -102,6 +110,16 @@ export function widthMismatches(doc: mupdf.PDFDocument): string[] {
     if (bad) out.add(f.get("BaseFont").asName() || "(unnamed)");
   }
   return [...out];
+}
+
+// A TrueType program's glyph count, from its maxp table; throws if it has none.
+function glyphCount(ttf: Uint8Array): number {
+  const v = new DataView(ttf.buffer, ttf.byteOffset, ttf.byteLength);
+  for (let i = 0, n = v.getUint16(4); i < n; i++) {
+    const at = 12 + 16 * i;
+    if (String.fromCharCode(...ttf.subarray(at, at + 4)) === "maxp") return v.getUint16(v.getUint32(at + 8) + 4);
+  }
+  throw new Error("no maxp table");
 }
 
 // Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).

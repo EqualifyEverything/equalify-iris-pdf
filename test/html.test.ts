@@ -164,6 +164,11 @@ test("a short table row gets an empty cell across the rest, and a rowspan stops 
   const cells = (tr: Node) => tr.kids.filter((k): k is Node => !isRun(k)).map((c) => [c.type, c.span]);
   assert.deepEqual(cells(rows[1]), [["TD", [1, 1]], ["TD", [2, 1]]]);
   assert.deepEqual(cells(rows[2])[0], ["TD", [1, 1]]);
+  // A rowspan stops at the end of its row group: the header's does not reach the body.
+  const grouped = build(`<table><thead><tr><th rowspan="3">A</th><th>B</th></tr></thead><tbody><tr></tr><tr><td>1</td><td>2</td></tr></tbody></table>`).top;
+  const grows: Node[] = [], gwalk = (n: Node) => { if (n.type === "TR") grows.push(n); n.kids.forEach((k) => isRun(k) || gwalk(k)); };
+  gwalk(grouped);
+  assert.deepEqual(grows.map(cells), [[["TH", [1, 1]], ["TH", [1, 1]]], [["TD", [1, 1]], ["TD", [1, 1]]]]);
 });
 
 test("tables: header ids, scope and each cell's headers", () => {
