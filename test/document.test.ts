@@ -139,6 +139,30 @@ test("retagging drops a foreign tag tree and what points into it", () => {
   assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K", "S").asName(), "Document", "a new tree");
 });
 
+test("a form XObject's old key and marked content go, so no key has two holders (#54)", () => {
+  for (const tree of [true, false]) {
+    const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+    const form = src.addStream("/Figure <</MCID 0>> BDC 0 0 1 rg 0 0 50 50 re f EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 50], StructParents: 0 });
+    const page = src.findPage(0);
+    page.put("Contents", src.addStream(page.get("Contents").readStream().asString() + " q 1 0 0 1 200 200 cm /Fx Do Q", {}));
+    page.get("Resources").put("XObject", { Fx: form });
+    page.put("StructParents", 1);
+    if (tree) src.getTrailer().get("Root").put("StructTreeRoot", src.addObject({ Type: "StructTreeRoot" }));
+    const report = newReport();
+    const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
+    const keys: number[] = [];
+    for (let n = 1; n < doc.countObjects(); n++) {
+      const k = doc.newIndirect(n).get("StructParents");
+      if (k.isNumber()) keys.push(k.asNumber());
+    }
+    assert.deepEqual(keys, [0], `tree: ${tree}`); // the page's, alone
+    const fx = doc.findPage(0).get("Resources", "XObject", "Fx");
+    assert.doesNotMatch(fx.readStream().asString(), /MCID|BDC/);
+    assert.ok(!report.warnings.some((w) => w.code === "source_marked_content"));
+    assert.equal(report.verification.differingPixels, 0);
+  }
+});
+
 test("retagging rewrites link descriptions we wrote, and keeps the author's", () => {
   const html = (a: string) => ({ ...pagesOf("links"), pages: [{ sourcePage: 1, html: `<h1>Contact</h1><p>Apply online at ${a}.</p>` }] });
   const contents = (pdf: Uint8Array) => new mupdf.PDFDocument(pdf).findPage(0).get("Annots").get(0).get("Contents").asString();

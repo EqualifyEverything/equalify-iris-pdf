@@ -1,7 +1,7 @@
 // Open a PDF and refuse the ones we must not touch (spec §11).
 import * as mupdf from "mupdf";
 import { IrisPdfError, EXIT, type Warning } from "../report.ts";
-import { unmarkPage } from "./content.ts";
+import { unmark, unmarkPage, withoutStrings } from "./content.ts";
 
 export const MAX_PAGES = 25; // matches Iris's MAX_PDF_PAGES
 
@@ -62,6 +62,7 @@ export function openPdf(bytes: Uint8Array, opts: OpenOptions = {}): Source {
   if (pages > MAX_PAGES) {
     throw new IrisPdfError("too_many_pages", `The PDF has ${pages} pages; the limit is ${MAX_PAGES}.`);
   }
+  unkeyForms(doc);
   if (!root.get("StructTreeRoot").isNull()) {
     source.restored = untag(doc);
     warnings.push({ code: "retagged", detail: "The PDF's existing tags were removed and replaced." });
@@ -111,6 +112,28 @@ function untag(doc: mupdf.PDFDocument): boolean {
     restored = true;
   }
   return restored;
+}
+
+// Forms and tiling patterns keep the /StructParents and marked-content ids of
+// an earlier tag tree, even when the tree is gone. A page given the same key
+// would share their parent-tree entry: two streams claiming MCID 0, which PAC
+// refuses to open. Each loses its key and its marked content, which draws nothing.
+function unkeyForms(doc: mupdf.PDFDocument) {
+  for (let n = 1; n < doc.countObjects(); n++) {
+    const x = doc.newIndirect(n);
+    if (!x.isStream() || !(x.get("Subtype").asName() === "Form" || x.get("PatternType").asNumber() === 1)) continue;
+    x.delete("StructParents");
+    x.delete("StructParent");
+    let body: string;
+    try {
+      body = Buffer.from(x.readStream().asUint8Array()).toString("latin1");
+    } catch {
+      continue;
+    }
+    if (!/\/MCID\b/.test(withoutStrings(body))) continue;
+    const clean = unmark(body);
+    if (clean !== body) x.writeStream(Buffer.from(clean, "latin1"));
+  }
 }
 
 // Every terminal field in the AcroForm tree.
