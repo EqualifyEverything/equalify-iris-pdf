@@ -124,13 +124,28 @@ function unkeyForms(doc: mupdf.PDFDocument) {
     if (!x.isStream() || !(x.get("Subtype").asName() === "Form" || x.get("PatternType").asNumber() === 1)) continue;
     x.delete("StructParents");
     x.delete("StructParent");
+    // A named property list (/P /MC0 BDC) keeps its /MCID in the resources; unmark() drops its use.
+    // The form gets its own copies: its resources may be its page's too.
+    const props = x.get("Resources", "Properties"), ids: string[] = [];
+    if (props.isDictionary()) props.forEach((p, k) => { if (p.isDictionary() && !p.get("MCID").isNull()) ids.push(String(k)); });
+    const named = ids.length > 0;
+    if (named) {
+      const copy = (d: mupdf.PDFObject, skip: string[] = []) => {
+        const out = doc.newDictionary();
+        d.forEach((v, k) => { if (!skip.includes(String(k))) out.put(k, v); });
+        return out;
+      };
+      const own = copy(x.get("Resources"));
+      own.put("Properties", copy(props, ids));
+      x.put("Resources", own);
+    }
     let body: string;
     try {
       body = Buffer.from(x.readStream().asUint8Array()).toString("latin1");
     } catch {
       continue;
     }
-    if (!/\/MCID\b/.test(withoutStrings(body))) continue;
+    if (!named && !/\/MCID\b/.test(withoutStrings(body))) continue;
     const clean = unmark(body);
     if (clean !== body) x.writeStream(Buffer.from(clean, "latin1"));
   }

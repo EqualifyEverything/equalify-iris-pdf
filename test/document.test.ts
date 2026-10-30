@@ -139,13 +139,30 @@ test("retagging drops a foreign tag tree and what points into it", () => {
   assert.equal(doc.getTrailer().get("Root", "StructTreeRoot", "K", "S").asName(), "Document", "a new tree");
 });
 
-test("a form XObject's old key and marked content go, so no key has two holders (#54)", () => {
+test("a form sharing its resources with a page left out of the HTML leaves that page's named property alone", () => {
+  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const res = src.addObject({ Properties: { MC0: { MCID: 0 } } });
+  res.put("XObject", { Fn: src.addStream("/P /MC0 BDC 0 0 m EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 20, 20], Resources: res }) });
+  src.insertPage(-1, src.addPage([0, 0, 300, 300], 0, res, "/P /MC0 BDC 0 0 m EMC /Fn Do"));
+  const report = newReport();
+  const doc = new mupdf.PDFDocument(tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report));
+  const page = doc.findPage(1).get("Resources");
+  assert.ok(!page.get("Properties", "MC0").isNull(), "the page keeps it");
+  assert.ok(page.get("XObject", "Fn", "Resources", "Properties", "MC0").isNull(), "the form does not");
+  assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 2 /);
+});
+
+test("forms and tiling patterns lose their old keys and marked content, so no key has two holders (#54)", () => {
   for (const tree of [true, false]) {
     const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
     const form = src.addStream("/Figure <</MCID 0>> BDC 0 0 1 rg 0 0 50 50 re f EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 50], StructParents: 0 });
+    // One whose marked content is a named property list, and a tiling pattern.
+    const named = src.addStream("/P /MC0 BDC 0 1 0 rg 0 0 20 20 re f EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 20, 20], StructParents: 2, Resources: { Properties: { MC0: { MCID: 0 } } } });
+    const tile = src.addStream("/P <</MCID 0>> BDC 1 0 0 rg 0 0 5 5 re f EMC", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 10, 10], XStep: 10, YStep: 10, StructParents: 3 });
     const page = src.findPage(0);
-    page.put("Contents", src.addStream(page.get("Contents").readStream().asString() + " q 1 0 0 1 200 200 cm /Fx Do Q", {}));
-    page.get("Resources").put("XObject", { Fx: form });
+    page.put("Contents", src.addStream(page.get("Contents").readStream().asString() + " q 1 0 0 1 200 200 cm /Fx Do Q q 1 0 0 1 200 100 cm /Fn Do Q /Pattern cs /Pt scn 200 20 40 40 re f", {}));
+    page.get("Resources").put("XObject", { Fx: form, Fn: named });
+    page.get("Resources").put("Pattern", { Pt: tile });
     page.put("StructParents", 1);
     if (tree) src.getTrailer().get("Root").put("StructTreeRoot", src.addObject({ Type: "StructTreeRoot" }));
     const report = newReport();
@@ -156,8 +173,9 @@ test("a form XObject's old key and marked content go, so no key has two holders 
       if (k.isNumber()) keys.push(k.asNumber());
     }
     assert.deepEqual(keys, [0], `tree: ${tree}`); // the page's, alone
-    const fx = doc.findPage(0).get("Resources", "XObject", "Fx");
-    assert.doesNotMatch(fx.readStream().asString(), /MCID|BDC/);
+    const res = doc.findPage(0).get("Resources");
+    for (const x of [res.get("XObject", "Fx"), res.get("XObject", "Fn"), res.get("Pattern", "Pt")]) assert.doesNotMatch(x.readStream().asString(), /MCID|BDC/);
+    assert.ok(res.get("XObject", "Fn", "Resources", "Properties", "MC0").isNull());
     assert.ok(!report.warnings.some((w) => w.code === "source_marked_content"));
     assert.equal(report.verification.differingPixels, 0);
   }
