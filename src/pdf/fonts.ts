@@ -59,7 +59,7 @@ export class FontSet {
 // change rendering, so it is dropped, unless the file claims PDF/A-1, which requires it.
 export function dropCharSets(doc: mupdf.PDFDocument) {
   const xmp = doc.getTrailer().get("Root", "Metadata");
-  if (xmp.isStream() && /pdfaid:part(>\s*|="\s*)1\b/.test(xmp.readStream().asString())) return;
+  if (xmp.isStream() && /pdfaid:part(>\s*|=["']\s*)1\b/.test(xmp.readStream().asString())) return;
   for (let n = 1; n < doc.countObjects(); n++) {
     const d = doc.newIndirect(n);
     if (d.isDictionary() && d.get("Type").isName() && d.get("Type").asName() === "FontDescriptor") d.delete("CharSet");

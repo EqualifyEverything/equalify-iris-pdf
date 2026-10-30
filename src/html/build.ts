@@ -240,13 +240,18 @@ const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colg
 
 // A row with no cells, such as the one "<tr><tr>" parses to, reads as nothing
 // and fails PDF/UA-1 (7.2: rows have the same number of columns). So does a
-// row group left empty.
-function dropEmptyRows(n: Node) {
+// row group left empty. A row a rowspan above reaches into is not empty: it
+// stays, so the cells below keep their columns. Rows count across the table, as in tableHeaders.
+function dropEmptyRows(n: Node, at = { row: 0, reach: -1 }) {
   n.kids = n.kids.filter((k) => {
     if (isRun(k)) return true;
-    if (k.type === "TR") return k.kids.some((c) => (isRun(c) ? c.words.length > 0 : c.type === "TH" || c.type === "TD"));
+    if (k.type === "TR") {
+      const row = at.row++, cells = k.kids.filter((c): c is Node => !isRun(c) && !!c.span);
+      for (const c of cells) at.reach = Math.max(at.reach, row + c.span![1] - 1);
+      return cells.length > 0 || at.reach >= row || k.kids.some((c) => isRun(c) && c.words.length > 0);
+    }
     if (!["THead", "TBody", "TFoot"].includes(k.type)) return true;
-    dropEmptyRows(k);
+    dropEmptyRows(k, at);
     return k.kids.length > 0;
   });
 }

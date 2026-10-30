@@ -150,6 +150,11 @@ function formsOf(top: Node) {
 test("a table row with no cells, and a row group left empty, are dropped", () => {
   const { top } = build("<table><thead><tr></tr></thead><tbody><tr><th>A</th></tr><tr><tr><td>1</td></tr></tbody></table>");
   assert.equal(shape(top), `#root(Table(TBody(TR(TH("A")), TR(TD("1")))))`);
+  // A row a rowspan reaches into stays, so the cells below keep their columns and headers.
+  const spanned = build(`<table><tr><th rowspan="2">Region</th><th rowspan="2">Fee</th></tr><tr></tr><tr><td>North</td><td>20</td></tr></table>`).top;
+  const tds: Node[] = [], walk = (n: Node) => { if (n.type === "TD") tds.push(n); n.kids.forEach((k) => isRun(k) || walk(k)); };
+  walk(spanned);
+  assert.deepEqual(tds.map((t) => t.headers), [["p1-th1"], ["p1-th2"]]);
 });
 
 test("tables: header ids, scope and each cell's headers", () => {

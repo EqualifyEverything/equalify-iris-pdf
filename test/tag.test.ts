@@ -757,7 +757,7 @@ test("a font descriptor's /CharSet is dropped, unless the file claims PDF/A-1, w
   for (const pdfa of [false, true]) {
     const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
     for (const d of descriptors(src)) d.put("CharSet", src.newString("/a"));
-    const meta = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part="1" pdfaid:conformance="B"/></rdf:RDF></x:xmpmeta>`;
+    const meta = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part='1' pdfaid:conformance="B"/></rdf:RDF></x:xmpmeta>`;
     if (pdfa) src.getTrailer().get("Root").put("Metadata", src.addStream(meta, { Type: "Metadata", Subtype: "XML" }));
     const pdf = src.saveToBuffer("").asUint8Array().slice();
     assert.ok(charSets(pdf) > 0);
