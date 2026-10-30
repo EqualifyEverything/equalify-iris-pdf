@@ -111,6 +111,13 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   const courier = tiled.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Courier" });
   tiled.findPage(0).get("Resources").put("Pattern", { P0: tiled.addStream("BT /C 8 Tf (Paid) Tj ET", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 40, 10], XStep: 40, YStep: 10, Resources: { Font: { C: courier } } }) });
   assert.deepEqual(unembeddedFonts(tiled), ["Courier"]);
+  // An appearance that paints with such a pattern uses its fonts too.
+  const painted = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  const h = painted.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica" });
+  const p0 = painted.addStream("BT /H 10 Tf (Hi) Tj ET", { PatternType: 1, PaintType: 1, TilingType: 1, BBox: [0, 0, 40, 10], XStep: 40, YStep: 10, Resources: { Font: { H: h } } });
+  const fill = painted.addStream("/Pattern cs /P0 scn 0 0 50 20 re f", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 20], Resources: { Pattern: { P0: p0 } } });
+  painted.findPage(0).put("Annots", [painted.addObject({ Type: "Annot", Subtype: "Widget", Rect: [0, 0, 50, 20], AP: { N: fill } })]);
+  assert.deepEqual(unembeddedFonts(painted), ["Helvetica"]);
 });
 
 test("an equation is a Formula with Alt that owns its words, and its MathML as an associated file", () => {
