@@ -54,6 +54,18 @@ export class FontSet {
   }
 }
 
+// A font descriptor's /CharSet must list every glyph its program has (PDF/UA-1
+// 7.21.4.2), and producers often get it wrong. It is optional and does not
+// change rendering, so it is dropped, unless the file claims PDF/A-1, which requires it.
+export function dropCharSets(doc: mupdf.PDFDocument) {
+  const xmp = doc.getTrailer().get("Root", "Metadata");
+  if (xmp.isStream() && /pdfaid:part(>\s*|="\s*)1\b/.test(xmp.readStream().asString())) return;
+  for (let n = 1; n < doc.countObjects(); n++) {
+    const d = doc.newIndirect(n);
+    if (d.isDictionary() && d.get("Type").isName() && d.get("Type").asName() === "FontDescriptor") d.delete("CharSet");
+  }
+}
+
 // Base names of the source's fonts with no embedded program (PDF/UA-1 7.21.4.1).
 // Looks in every page, form XObject, tiling pattern and annotation appearance. Nesting past a depth of 32 is not checked, and counts as unembedded.
 export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {

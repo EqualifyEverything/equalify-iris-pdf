@@ -147,6 +147,11 @@ function formsOf(top: Node) {
   return forms;
 }
 
+test("a table row with no cells, and a row group left empty, are dropped", () => {
+  const { top } = build("<table><thead><tr></tr></thead><tbody><tr><th>A</th></tr><tr><tr><td>1</td></tr></tbody></table>");
+  assert.equal(shape(top), `#root(Table(TBody(TR(TH("A")), TR(TD("1")))))`);
+});
+
 test("tables: header ids, scope and each cell's headers", () => {
   const { top } = build(
     "<table><thead><tr><th></th><th>Q1</th><th>Q2</th></tr></thead>" +

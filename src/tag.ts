@@ -5,7 +5,7 @@ import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/docu
 import { drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
 import { inlinePage } from "./pdf/forms.ts";
 import { artifactStreams, keyedBody, keyedChars, parseText, type Mark, type PageText } from "./pdf/shows.ts";
-import { FontSet, unembeddedFonts } from "./pdf/fonts.ts";
+import { dropCharSets, FontSet, unembeddedFonts } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { layersAutoState, setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
@@ -115,6 +115,7 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   clock.lap("form");
 
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
+  dropCharSets(doc);
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
