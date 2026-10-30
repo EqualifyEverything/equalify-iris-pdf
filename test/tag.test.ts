@@ -783,12 +783,12 @@ test("a TrueType CID font whose /W disagrees with its program is found, and stop
     edit(f.get("DescendantFonts").get(0));
     return d;
   };
-  assert.deepEqual(widthMismatches(build(() => {})), []);
-  assert.equal(widthMismatches(build((k) => k.put("W", [1, [5]]))).length, 1, "a wrong width");
-  assert.equal(widthMismatches(build((k) => k.delete("W"))).length, 1, "no /W, so every glyph is 1000 wide");
+  assert.deepEqual(widthMismatches(build(() => {})), { mismatched: [], unchecked: [] });
+  assert.equal(widthMismatches(build((k) => k.put("W", [1, [5]]))).mismatched.length, 1, "a wrong width");
+  assert.equal(widthMismatches(build((k) => k.delete("W"))).mismatched.length, 1, "no /W, so every glyph is 1000 wide");
   // Past the end of the program a glyph is 0 wide, so these all match: only the budget stops them.
   const start = performance.now();
-  assert.equal(widthMismatches(build((k) => k.put("W", Array.from({ length: 300 }, () => [65000, 65535, 0]).flat()))).length, 1, "out of budget counts as a mismatch");
+  assert.deepEqual(widthMismatches(build((k) => k.put("W", Array.from({ length: 300 }, () => [65000, 65535, 0]).flat()))), { mismatched: [], unchecked: ["Droid Sans Fallback Regular"] }, "out of budget: unchecked, not mismatched");
   assert.ok(performance.now() - start < 5000);
   const report = newReport();
   const out = tag(build((k) => k.delete("W")).saveToBuffer("").asUint8Array().slice(), { lang: "zh", title: "t", pages: [{ sourcePage: 1, html: "<p>x</p>" }] }, {}, report);
