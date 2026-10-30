@@ -1,6 +1,7 @@
 // Fonts for the invisible overlay. Each is embedded as a subset with a
 // /ToUnicode map, so the text it carries can be extracted exactly.
 import * as mupdf from "mupdf";
+import { withoutStrings } from "./content.ts";
 
 // mupdf's built-in fonts. Helvetica (Nimbus Sans) covers Latin, Greek and
 // Cyrillic; the CJK fallback covers Chinese, Japanese and Korean.
@@ -66,22 +67,44 @@ export function dropGlyphSets(doc: mupdf.PDFDocument) {
   }
 }
 
-// Base names of embedded CIDFontType2 fonts whose /W widths disagree with their
-// program's advances by more than a unit (PDF/UA-1 7.21.5). Only /W entries are
-// compared; with no /W at all, every glyph is /DW wide, so a program with other
-// advances among its first 256 glyphs counts. Simple fonts are not checked.
-// At most MAX_WIDTH_CHECKS glyphs are compared in all, so a crafted /W cannot
+// The glyph ids each font draws, by name, over every page and its annotations.
+function drawnGlyphs(doc: mupdf.PDFDocument): Map<string, Set<number>> {
+  const out = new Map<string, Set<number>>();
+  const take = (text: mupdf.Text) => text.walk({
+    showGlyph(font, _trm, glyph) {
+      const name = font.getName();
+      if (!out.has(name)) out.set(name, new Set());
+      out.get(name)!.add(glyph);
+    },
+  });
+  const device = new mupdf.Device({ fillText: take, strokeText: take, clipText: take, clipStrokeText: take, ignoreText: take });
+  try {
+    for (let i = 0; i < doc.countPages(); i++) doc.loadPage(i).run(device, mupdf.Matrix.identity);
+  } finally {
+    device.close();
+  }
+  return out;
+}
+
+// Base names of embedded CIDFontType2 fonts that draw a glyph whose width, from
+// /W or else /DW, disagrees with its program's advance by more than a unit
+// (PDF/UA-1 7.21.5). Like veraPDF, only drawn glyphs count: a subset's /W often
+// gives 0 for the glyphs it dropped. Simple fonts are not checked.
+// At most MAX_WIDTH_CHECKS steps are taken in all, so a crafted /W cannot
 // stall the run; the fonts not fully checked when they run out are `unchecked`.
 export const MAX_WIDTH_CHECKS = 100_000;
 export function widthMismatches(doc: mupdf.PDFDocument): { mismatched: string[]; unchecked: string[] } {
   const mismatched = new Set<string>(), unchecked = new Set<string>();
-  let budget = MAX_WIDTH_CHECKS;
+  let budget = MAX_WIDTH_CHECKS, drawn: Map<string, Set<number>> | undefined;
   const spent = () => --budget < 0;
   for (let n = 1; n < doc.countObjects(); n++) {
     const f = doc.newIndirect(n);
     if (!f.isDictionary() || !f.get("Subtype").isName() || f.get("Subtype").asName() !== "CIDFontType2") continue;
     const file = f.get("FontDescriptor", "FontFile2");
     if (!file.isStream()) continue;
+    drawn ??= drawnGlyphs(doc);
+    const name = f.get("BaseFont").asName() || "(unnamed)", used = drawn.get(name);
+    if (!used) continue;
     let font: mupdf.Font, glyphs: number;
     try {
       const program = file.readStream();
@@ -90,27 +113,47 @@ export function widthMismatches(doc: mupdf.PDFDocument): { mismatched: string[];
     } catch {
       continue;
     }
+    // Each drawn glyph's CID: the same under /Identity, else found in /CIDToGIDMap.
     const map = f.get("CIDToGIDMap"), bytes = map.isStream() ? map.readStream().asUint8Array() : null;
-    const gid = (cid: number) => (bytes ? ((bytes[2 * cid] ?? 0) << 8) | (bytes[2 * cid + 1] ?? 0) : cid);
-    const advance = (g: number) => font.advanceGlyph(g, 0) * 1000;
-    // A glyph the program lacks has no width to compare.
-    const off = (cid: number, w: number) => spent() || (gid(cid) < glyphs && Math.abs(advance(gid(cid)) - w) > 1);
-    const w = f.get("W"), dw = f.get("DW").isNumber() ? f.get("DW").asNumber() : 1000;
-    let bad = false;
-    if (!w.isArray()) for (let g = 1; g < Math.min(256, glyphs) && !bad; g++) bad = spent() || (advance(g) > 0 && Math.abs(advance(g) - dw) > 1);
-    for (let i = 0; w.isArray() && i + 1 < w.length && !bad; ) {
-      const first = w.get(i).asNumber(), next = w.get(i + 1);
-      if (next.isArray()) {
-        for (let k = 0; k < next.length && !bad; k++) bad = off(first + k, next.get(k).asNumber());
-        i += 2;
-      } else {
-        for (let c = first; c <= Math.min(next.asNumber(), first + 0xffff) && !bad; c++) bad = off(c, w.get(i + 2).asNumber());
-        i += 3;
-      }
+    const cidOf = new Map<number, number>();
+    if (bytes) for (let cid = 0; 2 * cid + 1 < bytes.length && !spent(); cid++) {
+      const g = (bytes[2 * cid] << 8) | bytes[2 * cid + 1];
+      if (used.has(g) && !cidOf.has(g)) cidOf.set(g, cid);
     }
-    if (bad) (budget < 0 ? unchecked : mismatched).add(f.get("BaseFont").asName() || "(unnamed)");
+    // /W as runs: [first, last, width per CID or one width for all].
+    const w = f.get("W"), runs: [number, number, mupdf.PDFObject | number][] = [];
+    for (let i = 0; w.isArray() && i + 1 < w.length && !spent(); ) {
+      const first = w.get(i).asNumber(), next = w.get(i + 1);
+      if (next.isArray()) runs.push([first, first + next.length - 1, next]), (i += 2);
+      else runs.push([first, next.asNumber(), w.get(i + 2).asNumber()]), (i += 3);
+    }
+    const dw = f.get("DW").isNumber() ? f.get("DW").asNumber() : 1000;
+    const widthOf = (cid: number) => {
+      for (const [first, last, v] of runs) {
+        if (spent()) return null;
+        if (cid >= first && cid <= last) return typeof v === "number" ? v : v.get(cid - first).asNumber();
+      }
+      return dw;
+    };
+    let bad = budget < 0;
+    for (const g of used) {
+      if (bad) break;
+      const cid = bytes ? cidOf.get(g) : g, width = cid === undefined ? null : widthOf(cid);
+      if (budget < 0) bad = true;
+      else if (width !== null && g < glyphs) bad = Math.abs(font.advanceGlyph(g, 0) * 1000 - width) > 1;
+    }
+    if (bad) (budget < 0 ? unchecked : mismatched).add(name);
   }
   return { mismatched: [...mismatched], unchecked: [...unchecked] };
+}
+
+// True unless the stream plainly sets no font and draws no XObject; one that cannot be read counts.
+function drawsText(s: mupdf.PDFObject): boolean {
+  try {
+    return /(^|[\s\]>)])(Tf|Do)\b/.test(withoutStrings(Buffer.from(s.readStream().asUint8Array()).toString("latin1")));
+  } catch {
+    return true;
+  }
 }
 
 // A TrueType program's glyph count, from its maxp table; throws if it has none.
@@ -150,8 +193,12 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
   };
   // /AP holds /N, /R, /D, each a stream or a dictionary of streams: two levels.
   const appearance = (ap: mupdf.PDFObject, depth = 0) => {
-    // An appearance with no resources of its own takes the form's (/DR).
-    if (ap.isStream()) return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
+    // An appearance with no resources of its own takes the form's (/DR). One that
+    // sets no font and draws no form, such as an empty field's, uses none.
+    if (ap.isStream()) {
+      if (!drawsText(ap)) return;
+      return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
+    }
     if (ap.isDictionary() && depth < 2) ap.forEach((x) => appearance(x, depth + 1));
   };
   for (let i = 0; i < doc.countPages(); i++) {

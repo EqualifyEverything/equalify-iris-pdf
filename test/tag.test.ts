@@ -10,7 +10,7 @@ import { comparePixels } from "../src/verify/pixels.ts";
 import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
 import { Overlay, pageBody, pagesWithMcids, unmark } from "../src/pdf/content.ts";
-import { FontSet, unembeddedFonts, widthMismatches } from "../src/pdf/fonts.ts";
+import { FontSet, MAX_WIDTH_CHECKS, unembeddedFonts, widthMismatches } from "../src/pdf/fonts.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture, withLayers } from "./helpers.ts";
 
 const TEXT = ["text-simple", "text-embedded", "structure", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
@@ -98,6 +98,10 @@ test("a source font that is not embedded is reported, and PDF/UA is not claimed"
   const form = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const helv = form.addObject({ Type: "Font", Subtype: "Type1", BaseFont: "Helvetica" });
   form.getTrailer().get("Root").put("AcroForm", form.addObject({ Fields: [], DR: { Font: { Helv: helv } } }));
+  assert.deepEqual(unembeddedFonts(form), []);
+  // An empty field's appearance sets no font, so it uses none.
+  const empty = form.addStream("", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 20] });
+  form.findPage(0).put("Annots", [form.addObject({ Type: "Annot", Subtype: "Widget", Rect: [0, 0, 50, 20], AP: { N: empty } })]);
   assert.deepEqual(unembeddedFonts(form), []);
   const ap = form.addStream("BT /Helv 10 Tf (x) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 20] });
   form.findPage(0).put("Annots", [form.addObject({ Type: "Annot", Subtype: "Widget", Rect: [0, 0, 50, 20], AP: { N: ap } })]);
@@ -775,20 +779,24 @@ test("text whose font gives no Unicode value is warned and stops the PDF/UA clai
   assert.equal(report.verification.differingPixels, 0);
 });
 
-test("a TrueType CID font whose /W disagrees with its program is found, and stops the PDF/UA claim", () => {
-  const build = (edit: (kid: mupdf.PDFObject) => void) => {
+test("a TrueType CID font whose widths disagree with its program for a drawn glyph is found, and stops the PDF/UA claim", () => {
+  const build = (edit: (kid: mupdf.PDFObject, d: mupdf.PDFDocument) => void) => {
     const d = new mupdf.PDFDocument();
     const f = d.addFont(new mupdf.Font("zh-Hans")); // a TrueType program, built into mupdf
-    d.insertPage(-1, d.addPage([0, 0, 200, 200], 0, { Font: { F0: f } }, "BT /F0 12 Tf 10 100 Td <0001> Tj ET"));
-    edit(f.get("DescendantFonts").get(0));
+    d.insertPage(-1, d.addPage([0, 0, 200, 200], 0, { Font: { F0: f } }, "BT /F0 12 Tf 10 100 Td <0001> Tj ET")); // draws CID 1 only
+    edit(f.get("DescendantFonts").get(0), d);
     return d;
   };
+  const right = Math.round(new mupdf.Font("zh-Hans").advanceGlyph(1, 0) * 1000);
   assert.deepEqual(widthMismatches(build(() => {})), { mismatched: [], unchecked: [] });
   assert.equal(widthMismatches(build((k) => k.put("W", [1, [5]]))).mismatched.length, 1, "a wrong width");
   assert.equal(widthMismatches(build((k) => k.delete("W"))).mismatched.length, 1, "no /W, so every glyph is 1000 wide");
-  // Past the end of the program a glyph is 0 wide, so these all match: only the budget stops them.
+  // A subset's /W gives 0 for glyphs it dropped; they are not drawn, so they do not count.
+  assert.deepEqual(widthMismatches(build((k) => k.put("W", [1, [right, 0, 0, 0]]))), { mismatched: [], unchecked: [] });
+  // A /CIDToGIDMap longer than the budget: out of budget is unchecked, not mismatched, and quick.
   const start = performance.now();
-  assert.deepEqual(widthMismatches(build((k) => k.put("W", Array.from({ length: 300 }, () => [65000, 65535, 0]).flat()))), { mismatched: [], unchecked: ["Droid Sans Fallback Regular"] }, "out of budget: unchecked, not mismatched");
+  const long = build((k, d) => k.put("CIDToGIDMap", d.addStream(Buffer.alloc(2 * (MAX_WIDTH_CHECKS + 10)), {})));
+  assert.deepEqual(widthMismatches(long), { mismatched: [], unchecked: ["Droid Sans Fallback Regular"] });
   assert.ok(performance.now() - start < 5000);
   const report = newReport();
   const out = tag(build((k) => k.delete("W")).saveToBuffer("").asUint8Array().slice(), { lang: "zh", title: "t", pages: [{ sourcePage: 1, html: "<p>x</p>" }] }, {}, report);
