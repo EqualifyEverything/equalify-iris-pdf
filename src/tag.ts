@@ -119,7 +119,8 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
   const widths = widthMismatches(doc);
-  if (widths.length) warn({ code: "font_widths_mismatch", detail: `${widths.join(", ")}: the widths the PDF gives disagree with the font's own; the output does not claim PDF/UA-1.` });
+  if (widths.mismatched.length) warn({ code: "font_widths_mismatch", detail: `${widths.mismatched.join(", ")}: the widths the PDF gives disagree with the font's own; the output does not claim PDF/UA-1.` });
+  if (widths.unchecked.length) warn({ code: "font_widths_unchecked", detail: `${widths.unchecked.join(", ")}: too many glyphs to check their widths; the output does not claim PDF/UA-1.` });
   for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
   const { shift, detail: shifted } = headingShift([...html.keys()].sort((a, b) => a - b).map((i) => html.get(i)!), lang);
   if (shifted) warn({ code: "headings_shifted", detail: shifted });
@@ -193,7 +194,7 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   const autoState = layersAutoState(doc);
   if (autoState) warn({ code: "layer_auto_state", detail: "An optional content configuration has /AS, which PDF/UA-1 forbids; the output does not claim PDF/UA-1." });
   const unmapped = report.warnings.some((w) => w.code === "unmapped_glyph");
-  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length && !autoState && !unmapped && !widths.length);
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length && !autoState && !unmapped && !widths.mismatched.length && !widths.unchecked.length);
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
