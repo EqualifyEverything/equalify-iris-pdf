@@ -322,7 +322,7 @@ test("a character no font has is reported and left out, not a verification failu
   assert.match(overlay.toString(), /<[0-9a-f]{4}[0-9a-f]{4}> Tj/, "x and a space");
 });
 
-test("marked content left from an old tag tree is removed from the page's drawing; elsewhere it is reported and stops the PDF/UA claim", () => {
+test("marked content left from an old tag tree is removed from the page's drawing and its forms; what cannot be read is reported and stops the PDF/UA claim", () => {
   const claims = (pdf: Uint8Array) => /pdfuaid:part/.test(new mupdf.PDFDocument(pdf).getTrailer().get("Root", "Metadata").readStream().asString());
   const doc = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
   const page = doc.findPage(0);
@@ -333,11 +333,18 @@ test("marked content left from an old tag tree is removed from the page's drawin
   assert.ok(claims(out));
   // Optional content decides what is drawn, so it stays.
   assert.equal(unmark("/OC /L1 BDC /P <</MCID 0 /Alt (x\\)y)>> BDC 0 0 m EMC EMC /Artifact BMC EMC"), "/OC /L1 BDC   0 0 m   EMC    ");
-  // A form XObject is not rewritten: its ids are reported.
+  // A form XObject loses its ids too (#54).
   page.get("Resources").put("XObject", { Old: doc.addStream("/P <</MCID 0>> BDC EMC", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 1, 1] }) });
   report = newReport();
   out = tag(doc.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report);
-  assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 1 /);
+  assert.ok(!report.warnings.some((w) => w.code === "source_marked_content"));
+  assert.ok(claims(out));
+  // A page left out of the HTML keeps its ids: they are reported.
+  const two = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  two.insertPage(-1, two.addPage([0, 0, 300, 300], 0, {}, "/P <</MCID 0>> BDC 0 0 m EMC"));
+  report = newReport();
+  out = tag(two.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report);
+  assert.match(report.warnings.find((w) => w.code === "source_marked_content")?.detail ?? "", /^Pages 2 /);
   assert.ok(!claims(out));
   // A form XObject that cannot be decoded is not searched, so it counts as marked.
   const bad = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
