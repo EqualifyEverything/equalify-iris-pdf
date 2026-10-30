@@ -149,10 +149,10 @@ export function widthMismatches(doc: mupdf.PDFDocument): { mismatched: string[];
   return { mismatched: [...mismatched], unchecked: [...unchecked] };
 }
 
-// True unless the stream plainly sets no font and draws no XObject; one that cannot be read counts.
+// True unless the stream plainly sets no font, draws no XObject and paints with no pattern; one that cannot be read counts.
 function drawsText(s: mupdf.PDFObject): boolean {
   try {
-    return /(^|[\s\]>)])(Tf|Do)\b/.test(withoutStrings(Buffer.from(s.readStream().asUint8Array()).toString("latin1")));
+    return /(^|[\s\]>)])(Tf|Do|scn|SCN)\b/.test(withoutStrings(Buffer.from(s.readStream().asUint8Array()).toString("latin1")));
   } catch {
     return true;
   }
@@ -196,7 +196,7 @@ export function unembeddedFonts(doc: mupdf.PDFDocument): string[] {
   // /AP holds /N, /R, /D, each a stream or a dictionary of streams: two levels.
   const appearance = (ap: mupdf.PDFObject, depth = 0) => {
     // An appearance with no resources of its own takes the form's (/DR). One that
-    // sets no font and draws no form, such as an empty field's, uses none.
+    // sets no font, draws no form and paints with no pattern, such as an empty field's, uses none.
     if (ap.isStream()) {
       if (!drawsText(ap)) return;
       return resources(ap.get("Resources").isDictionary() ? ap.get("Resources") : dr, 0);
