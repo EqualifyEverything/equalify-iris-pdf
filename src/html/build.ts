@@ -241,7 +241,7 @@ const scope = (s: string) => ({ row: "Row", rowgroup: "Row", col: "Column", colg
 // A row with no cells, such as the one "<tr><tr>" parses to, reads as nothing
 // and fails PDF/UA-1 (7.2: rows have the same number of columns). So does a
 // row group left empty. A row a rowspan above reaches into is not empty: it
-// stays, so the cells below keep their columns. Rows count across the table, as in tableHeaders.
+// stays, so the cells below keep their columns. A rowspan reaches no further than its row group.
 function dropEmptyRows(n: Node, at = { row: 0, reach: -1 }) {
   n.kids = n.kids.filter((k) => {
     if (isRun(k)) return true;
@@ -251,29 +251,41 @@ function dropEmptyRows(n: Node, at = { row: 0, reach: -1 }) {
       return cells.length > 0 || at.reach >= row || k.kids.some((c) => isRun(c) && c.words.length > 0);
     }
     if (!["THead", "TBody", "TFoot"].includes(k.type)) return true;
+    at.reach = -1; // a rowspan ends with its row group
     dropEmptyRows(k, at);
+    at.reach = -1;
     return k.kids.length > 0;
   });
 }
 
 // Every TH gets an /ID and every TD a /Headers list naming the TH cells above
 // it in its column and before it in its row.
+// A row with fewer columns than the widest gets an empty TD across the rest,
+// the blank a browser leaves; a rowspan stops at the end of its row group, as
+// in HTML. Rows of unequal width fail PDF/UA-1 (7.2: same number of columns).
 function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
-  const rows: { cells: Node[]; head: boolean }[] = [];
+  const rows: { tr: Node; cells: Node[]; head: boolean; end: { at: number } }[] = [];
   const collect = (n: Node, head: boolean) => {
+    let end = { at: 0 }; // where the current row group ends
     for (const k of n.kids) {
       if (isRun(k)) continue;
-      if (k.type === "TR") rows.push({ cells: k.kids.filter((c): c is Node => !isRun(c) && !!c.span), head });
-      else if (["THead", "TBody", "TFoot"].includes(k.type)) collect(k, k.type === "THead");
+      if (k.type === "TR") rows.push({ tr: k, cells: k.kids.filter((c): c is Node => !isRun(c) && !!c.span), head, end });
+      else if (["THead", "TBody", "TFoot"].includes(k.type)) {
+        end.at = rows.length;
+        collect(k, k.type === "THead");
+        end = { at: 0 };
+      }
     }
+    end.at = rows.length;
   };
   collect(table, false);
   const grid: Node[][] = [];
-  rows.forEach(({ cells, head }, r) => {
+  rows.forEach(({ cells, head, end }, r) => {
     grid[r] ??= [];
     let c = 0;
     for (const cell of cells) {
       while (grid[r][c]) c++;
+      cell.span![1] = Math.min(cell.span![1], end.at - r);
       const [cs, rs] = cell.span!;
       for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) (grid[r + dr] ??= [])[c + dc] = cell;
       if (cell.type === "TH") {
@@ -286,6 +298,12 @@ function tableHeaders(table: Node, prefix: string, ths: { n: number }) {
       if (cs > 1 || rs > 1 || cell.type === "TH") cell.attrs = a;
       c += cs;
     }
+  });
+  const width = (r: number) => (grid[r] ?? []).filter(Boolean).length;
+  const widest = rows.reduce((m, _, r) => Math.max(m, width(r)), 0);
+  rows.forEach(({ tr }, r) => {
+    const gap = widest - width(r);
+    if (gap > 0) tr.kids.push({ type: "TD", kids: [], span: [gap, 1], headers: [], ...(gap > 1 ? { attrs: { O: "Table", ColSpan: gap } } : {}) });
   });
   grid.forEach((row, r) => row.forEach((cell, c) => {
     if (cell.type !== "TD" || cell.headers) return;

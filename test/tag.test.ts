@@ -10,7 +10,7 @@ import { comparePixels } from "../src/verify/pixels.ts";
 import { compareText } from "../src/verify/text.ts";
 import { xmp } from "../src/pdf/metadata.ts";
 import { Overlay, pageBody, pagesWithMcids, unmark } from "../src/pdf/content.ts";
-import { FontSet, unembeddedFonts } from "../src/pdf/fonts.ts";
+import { FontSet, unembeddedFonts, widthMismatches } from "../src/pdf/fonts.ts";
 import { find, mcidText, pagesOf, readFixture, readingOrder, structTree, tagFixture, withLayers } from "./helpers.ts";
 
 const TEXT = ["text-simple", "text-embedded", "structure", "text-two-column", "links", "form-acroform", "cjk", "blank-page"];
@@ -744,7 +744,7 @@ test("a page whose content is too long to trace is tagged from the overlay", () 
   assert.equal(report.pages[0].redrawn, report.pages[0].matched);
 });
 
-test("a font descriptor's /CharSet is dropped, unless the file claims PDF/A-1, which requires it", () => {
+test("a font descriptor's /CharSet and /CIDSet are dropped, unless the file claims PDF/A-1, which requires them", () => {
   const descriptors = (doc: mupdf.PDFDocument) => {
     const out: mupdf.PDFObject[] = [];
     for (let n = 1; n < doc.countObjects(); n++) {
@@ -753,14 +753,45 @@ test("a font descriptor's /CharSet is dropped, unless the file claims PDF/A-1, w
     }
     return out;
   };
-  const charSets = (pdf: Uint8Array) => descriptors(new mupdf.PDFDocument(pdf)).filter((d) => d.get("CharSet").isString()).length;
+  const charSets = (pdf: Uint8Array) => descriptors(new mupdf.PDFDocument(pdf)).filter((d) => d.get("CharSet").isString() || d.get("CIDSet").isStream()).length;
   for (const pdfa of [false, true]) {
     const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
-    for (const d of descriptors(src)) d.put("CharSet", src.newString("/a"));
+    for (const d of descriptors(src)) d.put("CharSet", src.newString("/a")), d.put("CIDSet", src.addStream("\x80", {}));
     const meta = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" pdfaid:part='1' pdfaid:conformance="B"/></rdf:RDF></x:xmpmeta>`;
     if (pdfa) src.getTrailer().get("Root").put("Metadata", src.addStream(meta, { Type: "Metadata", Subtype: "XML" }));
     const pdf = src.saveToBuffer("").asUint8Array().slice();
     assert.ok(charSets(pdf) > 0);
     assert.equal(charSets(tag(pdf, pagesOf("text-embedded"))) > 0, pdfa, `PDF/A-1: ${pdfa}`);
   }
+});
+
+test("text whose font gives no Unicode value is warned and stops the PDF/UA claim", () => {
+  const src = new mupdf.PDFDocument(readFixture("text-embedded.pdf"));
+  src.findPage(0).get("Resources", "Font").forEach((f) => { f.delete("ToUnicode"); });
+  const report = newReport();
+  const out = tag(src.saveToBuffer("").asUint8Array().slice(), pagesOf("text-embedded"), {}, report);
+  assert.match(report.warnings.find((w) => w.code === "unmapped_glyph")?.detail ?? "", /^\d+ characters/);
+  assert.doesNotMatch(new mupdf.PDFDocument(out).getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
+  assert.equal(report.verification.differingPixels, 0);
+});
+
+test("a TrueType CID font whose /W disagrees with its program is found, and stops the PDF/UA claim", () => {
+  const build = (edit: (kid: mupdf.PDFObject) => void) => {
+    const d = new mupdf.PDFDocument();
+    const f = d.addFont(new mupdf.Font("zh-Hans")); // a TrueType program, built into mupdf
+    d.insertPage(-1, d.addPage([0, 0, 200, 200], 0, { Font: { F0: f } }, "BT /F0 12 Tf 10 100 Td <0001> Tj ET"));
+    edit(f.get("DescendantFonts").get(0));
+    return d;
+  };
+  assert.deepEqual(widthMismatches(build(() => {})), []);
+  assert.equal(widthMismatches(build((k) => k.put("W", [1, [5]]))).length, 1, "a wrong width");
+  assert.equal(widthMismatches(build((k) => k.delete("W"))).length, 1, "no /W, so every glyph is 1000 wide");
+  // Past the end of the program a glyph is 0 wide, so these all match: only the budget stops them.
+  const start = performance.now();
+  assert.equal(widthMismatches(build((k) => k.put("W", Array.from({ length: 300 }, () => [65000, 65535, 0]).flat()))).length, 1, "out of budget counts as a mismatch");
+  assert.ok(performance.now() - start < 5000);
+  const report = newReport();
+  const out = tag(build((k) => k.delete("W")).saveToBuffer("").asUint8Array().slice(), { lang: "zh", title: "t", pages: [{ sourcePage: 1, html: "<p>x</p>" }] }, {}, report);
+  assert.ok(report.warnings.some((w) => w.code === "font_widths_mismatch"));
+  assert.doesNotMatch(new mupdf.PDFDocument(out).getTrailer().get("Root", "Metadata").readStream().asString(), /pdfuaid:part/);
 });

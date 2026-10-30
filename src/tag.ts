@@ -5,7 +5,7 @@ import { describe, inherited, openPdf, save, type OpenOptions } from "./pdf/docu
 import { drawsNothing, Overlay, pageBody, pageImages, pagesWithMcids, unmarkPage, withoutStrings, type PageImage } from "./pdf/content.ts";
 import { inlinePage } from "./pdf/forms.ts";
 import { artifactStreams, keyedBody, keyedChars, parseText, type Mark, type PageText } from "./pdf/shows.ts";
-import { dropCharSets, FontSet, unembeddedFonts } from "./pdf/fonts.ts";
+import { dropGlyphSets, FontSet, unembeddedFonts, widthMismatches } from "./pdf/fonts.ts";
 import { StructTree } from "./pdf/struct.ts";
 import { layersAutoState, setDocumentInfo } from "./pdf/metadata.ts";
 import { textLayerWords } from "./pdf/words.ts";
@@ -115,9 +115,11 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   clock.lap("form");
 
   // The source's own fonts must be embedded for the file to be PDF/UA. We do not rewrite them.
-  dropCharSets(doc);
+  dropGlyphSets(doc);
   let unembedded = unembeddedFonts(doc);
   if (unembedded.length) warn({ code: "font_not_embedded", detail: `${unembedded.join(", ")}; the output does not claim PDF/UA-1.` });
+  const widths = widthMismatches(doc);
+  if (widths.length) warn({ code: "font_widths_mismatch", detail: `${widths.join(", ")}: the widths the PDF gives disagree with the font's own; the output does not claim PDF/UA-1.` });
   for (const i of html.keys()) unmarkPage(doc, doc.findPage(i));
   const { shift, detail: shifted } = headingShift([...html.keys()].sort((a, b) => a - b).map((i) => html.get(i)!), lang);
   if (shifted) warn({ code: "headings_shifted", detail: shifted });
@@ -190,7 +192,8 @@ function tagWith(pdf: Uint8Array, input: PagesInput, opts: TagOptions, report: R
   report.structure = { elements: struct.elements, byType: struct.byType };
   const autoState = layersAutoState(doc);
   if (autoState) warn({ code: "layer_auto_state", detail: "An optional content configuration has /AS, which PDF/UA-1 forbids; the output does not claim PDF/UA-1." });
-  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length && !autoState);
+  const unmapped = report.warnings.some((w) => w.code === "unmapped_glyph");
+  setDocumentInfo(doc, lang, title ?? "", !!title && !untagged && !unembedded.length && !marked.length && !autoState && !unmapped && !widths.length);
 
   const out = save(doc, src.repaired);
   report.sizeIncreaseBytes = out.length - pdf.length;
@@ -300,6 +303,9 @@ function tagPage(page: mupdf.PDFPage, i: number, html: string, ctx: PageCtx): { 
 
   const src = ctx.inPlace ? sourceText(ctx.doc, page) : null;
   let words: PageWord[] = textLayerWords(page, src?.keyed);
+  // A glyph whose font gives no Unicode value (no ToUnicode, no standard name) fails PDF/UA-1 7.21.7.
+  const unmapped = words.reduce((n, w) => n + [...w.text].filter((c) => c === "�").length, 0);
+  if (unmapped) warn({ code: "unmapped_glyph", detail: `${unmapped} characters of the page's own text have no Unicode value in their font; the output does not claim PDF/UA-1.` });
   if (words.length) report.textSource = "pdf-text";
   else if (ordered.length) {
     const ocr = ocrWords(page);
